@@ -1,4 +1,4 @@
-name: Release
+name: Release-
 
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.CR_PAT }}
+          password: ${{ secrets.MY_PERSONAL_TOKEN }}
           
       - name: Build package
         shell: bash
@@ -55,7 +55,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          token: ${{ secrets.CR_PAT }}
+          token: ${{ secrets.MY_PERSONAL_TOKEN }}
           files: |
             uploads/*
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
@@ -99,7 +99,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          token: ${{ secrets.CR_PAT }}
+          token: ${{ secrets.MY_PERSONAL_TOKEN }}
           files: |
             uploads/*
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
@@ -183,7 +183,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          token: ${{ secrets.TOKEN }}
+          token: ${{ secrets.MY_PERSONAL_TOKEN }}
           files: |
             openwrt-sdk/bin/packages/${{ matrix.target.arch }}/ninja/ninja*.ipk
           generate_release_notes: true
@@ -191,7 +191,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: ${{ startsWith(github.ref, 'refs/tags/') && matrix.target.arch == 'x86_64' }}
         with:
-          token: ${{ secrets.TOKEN }}
+          token: ${{ secrets.MY_PERSONAL_TOKEN }}
           files: |
             openwrt-sdk/bin/packages/${{ matrix.target.arch }}/ninja/luci-*.ipk
           generate_release_notes: true
@@ -222,7 +222,7 @@ jobs:
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASS }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Login to GitHub Container Registry
         if: startsWith(github.ref, 'refs/tags/')
@@ -230,7 +230,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.CR_PAT }}
+          password: ${{ secrets.MY_PERSONAL_TOKEN }}
             
       - name: Build and push
         if: startsWith(github.ref, 'refs/tags/')
@@ -244,5 +244,5 @@ jobs:
         uses: peter-evans/dockerhub-description@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASS }}
-          repository: gngpp/ninja
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          repository: spammenotinoz/ninja
