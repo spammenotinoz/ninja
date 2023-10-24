@@ -11,14 +11,6 @@ root=$(pwd)
 cargo update
 cargo install cargo-deb
 
-pull_docker_image() {
-    docker pull ghcr.io/spammenotinoz/ninja-builder:$1
-}
-
-rmi_docker_image() {
-    docker rmi ghcr.io/spammenotinoz/ninja-builder:$1
-}
-
 build_macos_target() {
     cargo build --release --target $1
     sudo chmod -R 777 target
