@@ -17,15 +17,15 @@ RUN if [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
         echo "musleabi" > env; \
     fi
 RUN apk update && apk add wget
-RUN wget https://github.com/gngpp/ninja/releases/download/v${VERSION}/ninja-${VERSION}-$(cat arch)-unknown-linux-$(cat env).tar.gz
+RUN wget https://github.com/spammenotinoz/ninja/releases/download/v${VERSION}/ninja-${VERSION}-$(cat arch)-unknown-linux-$(cat env).tar.gz
 RUN tar -xvf ninja-${VERSION}-$(cat arch)-unknown-linux-$(cat env).tar.gz
 
 FROM alpine:3.16.6
 
-LABEL org.opencontainers.image.authors "gngpp <gngppz@gmail.com>"
-LABEL org.opencontainers.image.source https://github.com/gngpp/ninja
+LABEL org.opencontainers.image.authors "spammenotinoz <spammenotinozz@gmail.com>"
+LABEL org.opencontainers.image.source https://github.com/spammenotinoz/ninja
 LABEL name ninja
-LABEL url https://github.com/gngpp/ninja
+LABEL url https://github.com/spammenotinoz/ninja
 
 ENV LANG=C.UTF-8 DEBIAN_FRONTEND=noninteractive LANG=zh_CN.UTF-8 LANGUAGE=zh_CN.UTF-8 LC_ALL=C
 
