@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/gngpp/ninja/actions/workflows/CI.yml/badge.svg)](https://github.com/gngpp/ninja/actions/workflows/CI.yml)
 [![CI](https://github.com/gngpp/ninja/actions/workflows/Release.yml/badge.svg)](https://github.com/gngpp/ninja/actions/workflows/Release.yml)
- <a target="_blank" href="https://github.com/gngpp/vdns/blob/main/LICENSE">
-  <img src="https://img.shields.io/badge/license-MIT-blue.svg"/>
+ <a target="_blank" href="https://github.com/gngpp/ninja/blob/main/LICENSE">
+  <img src="https://img.shields.io/badge/license-GPL_3.0-blue.svg"/>
  </a>
   <a href="https://github.com/gngpp/ninja/releases">
     <img src="https://img.shields.io/github/release/gngpp/ninja.svg?style=flat">
@@ -28,26 +28,20 @@ Reverse engineered `ChatGPT` proxy (bypass Cloudflare 403 Access Denied)
 
 > Limitations: This cannot bypass OpenAI's outright IP ban
 
-### Bypass IP restrictions
-
-Here `IP limit` refers to `OpenAI`'s request rate limit for `single IP`. You need to understand what `puid` is. The default request models interface returns `puid cookie`.
-In addition, the `GPT-4` session must be sent with `puid`. When using a third-party client to send a `GPT-4` conversation, the `puid` may not be saved or obtained. You need to handle it on the server side:
-
-- Use the startup parameter `--puid` to set up shared use separately. This method does not support updates.
-- Use the startup parameter `--puid-user` to set the `Account Plus` account to obtain the `puid`, and it will be updated regularly
-
 ### ArkoseLabs
 
 Sending a `GPT4` conversation requires `Arkose Token` to be sent as a parameter, and there are only three supported solutions for the time being
 
 1) The endpoint obtained by `Arkose Token`, no matter what method you use, use `--arkose-token-endpoint` to specify the endpoint to obtain the token. The supported `JSON` format is generally in accordance with the format of the community: `{"token": "xxxxxx"}`
 
-2) Using HAR, `ChatGPT` official website sends a `GPT4` session message, and the browser `F12` downloads `https://tcr9i.chat.openai.com/fc/gt2/public_key/35536E1E-65B4-4D96-9D97- 6ADB7EFF8147` For the HAR log file of the interface, use the startup parameter `--arkose-har-file` to specify the HAR file path to use (if the path is not specified, the default path `~/chat.openai.com.har` will be used, and updates can be uploaded directly HAR), supports uploading and updating HAR, request path: `/har/upload`, optional upload authentication parameter: `--arkose-har-upload-key`
+2) Using HAR, `ChatGPT` official website sends a `GPT4` session message, and the browser `F12` downloads `https://tcr9i.chat.openai.com/fc/gt2/public_key/35536E1E-65B4-4D96-9D97-6ADB7EFF8147` For the HAR log file of the interface, use the startup parameter `--arkose-chat-har-file` to specify the HAR file path to use (if the path is not specified, the default path `~/.chat.openai.com.har` will be used, and updates can be uploaded directly HAR), supports uploading and updating HAR, request path: `/har/upload`, optional upload authentication parameter: `--arkose-har-upload-key`
 
 3) Use [YesCaptcha](https://yescaptcha.com/i/1Cc5i4)/[CapSolver](https://dashboard.capsolver.com/passport/register?inviteCode=y7CtB_a-3X6d) platform for verification code parsing, start the parameter `--arkose-solver` to select the platform (the default is `YesCaptcha`), `--arkose-solver-key` fill in `Client Key`
 
 - All three solutions are used, the priority is: `HAR` > `YesCaptcha/CapSolver` > `Arkose Token endpoint`
 - `YesCaptcha/CapSolver` is recommended to be used with HAR. When the verification code is generated, the parser is called for processing. After verification, HAR is more durable.
+
+> Currently OpenAI has updated that login requires verification of `Arkose Token`. The solution is the same as GPT4. Fill in the startup parameters and specify the HAR file `--arkose-auth-har-file`. If you don't want to upload, you can log in through the browser code, which is not required.
 
 ### Command Line(dev)
 
@@ -97,9 +91,9 @@ Sending a `GPT4` conversation requires `Arkose Token` to be sent as a parameter,
 Making [Releases](https://github.com/gngpp/ninja/releases/latest) has a precompiled deb package, binaries, in Ubuntu, for example:
 
 ```shell
-wget https://github.com/gngpp/ninja/releases/download/v0.5.7/ninja-0.5.7-x86_64-unknown-linux-musl.deb
-dpkg -i ninja-0.5.7-x86_64-unknown-linux-musl.deb
-ninja serve run
+wget https://github.com/gngpp/ninja/releases/download/v0.7.1/ninja-0.7.1-x86_64-unknown-linux-musl.deb
+dpkg -i ninja-0.7.1-x86_64-unknown-linux-musl.deb
+ninja run
 ```
 
 - #### OpenWrt
@@ -107,13 +101,13 @@ ninja serve run
 There are pre-compiled ipk files in GitHub [Releases](https://github.com/gngpp/ninja/releases/latest), which currently provide versions of aarch64/x86_64 and other architectures. After downloading, use opkg to install, and use nanopi r4s as example:
 
 ```shell
-wget https://github.com/gngpp/ninja/releases/download/v0.5.7/ninja_0.5.7_aarch64_generic.ipk
-wget https://github.com/gngpp/ninja/releases/download/v0.5.7/luci-app-ninja_1.0.9-1_all.ipk
-wget https://github.com/gngpp/ninja/releases/download/v0.5.7/luci-i18n-ninja-zh-cn_1.0.9-1_all.ipk
+wget https://github.com/gngpp/ninja/releases/download/v0.7.1/ninja_0.7.1_aarch64_generic.ipk
+wget https://github.com/gngpp/ninja/releases/download/v0.7.1/luci-app-ninja_1.1.3-1_all.ipk
+wget https://github.com/gngpp/ninja/releases/download/v0.7.1/luci-i18n-ninja-zh-cn_1.1.3-1_all.ipk
 
-opkg install ninja_0.5.7_aarch64_generic.ipk
-opkg install luci-app-ninja_1.0.9-1_all.ipk
-opkg install luci-i18n-ninja-zh-cn_1.0.9-1_all.ipk
+opkg install ninja_0.7.1_aarch64_generic.ipk
+opkg install luci-app-ninja_1.1.3-1_all.ipk
+opkg install luci-i18n-ninja-zh-cn_1.1.3-1_all.ipk
 ```
 
 - #### Docker
@@ -122,7 +116,7 @@ opkg install luci-i18n-ninja-zh-cn_1.0.9-1_all.ipk
 docker run --rm -it -p 7999:7999 --name=ninja \
   -e WORKERS=1 \
   -e LOG=info \
-  gngpp/ninja:latest serve run
+  gngpp/ninja:latest run
 ```
 
 - Docker Compose
@@ -148,7 +142,7 @@ services:
     # volumes:
       # - ${PWD}/ssl:/etc
       # - ${PWD}/serve.toml:/serve.toml
-    command: serve run
+    command: run
     ports:
       - "8080:7999"
     depends_on:
@@ -172,18 +166,37 @@ services:
 ### Command Manual
 
 ```shell
-$ ninja serve --help
-Start the http server
+$ ninja --help
+Reverse engineered ChatGPT proxy
 
-Usage: ninja serve run [OPTIONS]
+Usage: ninja [COMMAND]
+
+Commands:
+  run      Run the HTTP server
+  stop     Stop the HTTP server daemon
+  start    Start the HTTP server daemon
+  restart  Restart the HTTP server daemon
+  status   Status of the Http server daemon process
+  log      Show the Http server daemon log
+  gt       Generate config template file (toml format file)
+  help     Print this message or the help of the given subcommand(s)
 
 Options:
+  -h, --help     Print help
+  -V, --version  Print version
+
+$ ninja run --help
+Run the HTTP server
+
+Usage: ninja run [OPTIONS]
+
+Options:
+  -L, --level <LEVEL>
+          Log level (info/debug/warn/trace/error) [env: LOG=] [default: info]
   -C, --config <CONFIG>
           Configuration file path (toml format file) [env: CONFIG=]
   -H, --host <HOST>
           Server Listen host [env: HOST=] [default: 0.0.0.0]
-  -L, --level <LEVEL>
-          Log level (info/debug/warn/trace/error) [env: LOG=] [default: info]
   -P, --port <PORT>
           Server Listen port [env: PORT=] [default: 7999]
   -W, --workers <WORKERS>
@@ -192,38 +205,56 @@ Options:
           Enforces a limit on the concurrent number of requests the underlying [default: 65535]
   -x, --proxies <PROXIES>
           Server proxies pool, Example: protocol://user:pass@ip:port [env: PROXIES=]
+  -i, --interface <INTERFACE>
+          Bind address for outgoing connections (or IPv6 subnet fallback to Ipv4) [env: INTERFACE=]
+  -I, --ipv6-subnet <IPV6_SUBNET>
+          IPv6 subnet, Example: 2001:19f0:6001:48e4::/64 [env: IPV4_SUBNET=]
       --disable-direct
           Disable direct connection [env: DISABLE_DIRECT=]
+      --cookie-store
+          Enabled Cookie Store [env: COOKIE_STORE=]
       --timeout <TIMEOUT>
           Client timeout (seconds) [default: 600]
       --connect-timeout <CONNECT_TIMEOUT>
           Client connect timeout (seconds) [default: 60]
       --tcp-keepalive <TCP_KEEPALIVE>
           TCP keepalive (seconds) [default: 60]
+      --pool-idle-timeout <POOL_IDLE_TIMEOUT>
+          Set an optional timeout for idle sockets being kept-alive [default: 90]
       --tls-cert <TLS_CERT>
           TLS certificate file path [env: TLS_CERT=]
       --tls-key <TLS_KEY>
           TLS private key file path (EC/PKCS8/RSA) [env: TLS_KEY=]
-      --puid <PUID>
-          PUID cookie value of Plus account [env: PUID=]
-      --puid-user <PUID_USER>
-          Obtain the PUID of the Plus account user, Example: `user:pass` or `user:pass:mfa`
+  -A, --auth-key <AUTH_KEY>
+          Login Authentication Key [env: AUTH_KEY=]
       --api-prefix <API_PREFIX>
-          Web UI api prefix [env: UI_API_PREFIX=]
+          WebUI api prefix [env: API_PREFIX=]
+      --preauth-api <PREAUTH_API>
+          PreAuth Cookie API URL [env: PREAUTH_API=] [default: https://ai.fakeopen.com/auth/preauth]
+  -D, --disable-webui
+          Disable WebUI [env: DISABLE_WEBUI=]
+      --cf-site-key <CF_SITE_KEY>
+          Cloudflare turnstile captcha site key [env: CF_SECRET_KEY=]
+      --cf-secret-key <CF_SECRET_KEY>
+          Cloudflare turnstile captcha secret key [env: CF_SITE_KEY=]
       --arkose-endpoint <ARKOSE_ENDPOINT>
           Arkose endpoint, Example: https://client-api.arkoselabs.com
-  -A, --arkose-token-endpoint <ARKOSE_TOKEN_ENDPOINT>
+      --arkose-token-endpoint <ARKOSE_TOKEN_ENDPOINT>
           Get arkose token endpoint
-  -a, --arkose-har-file <ARKOSE_HAR_FILE>
-          About the browser HAR file path requested by ChatGPT ArkoseLabs
+      --arkose-chat3-har-file <ARKOSE_CHAT3_HAR_FILE>
+          About the browser HAR file path requested by ChatGPT GPT-3.5 ArkoseLabs
+      --arkose-chat4-har-file <ARKOSE_CHAT4_HAR_FILE>
+          About the browser HAR file path requested by ChatGPT GPT-4 ArkoseLabs
+      --arkose-auth-har-file <ARKOSE_AUTH_HAR_FILE>
+          About the browser HAR file path requested by Auth ArkoseLabs
+      --arkose-platform-har-file <ARKOSE_PLATFORM_HAR_FILE>
+          About the browser HAR file path requested by Platform ArkoseLabs
   -K, --arkose-har-upload-key <ARKOSE_HAR_UPLOAD_KEY>
           HAR file upload authenticate key
   -s, --arkose-solver <ARKOSE_SOLVER>
           About ArkoseLabs solver platform [default: yescaptcha]
   -k, --arkose-solver-key <ARKOSE_SOLVER_KEY>
           About the solver client key by ArkoseLabs
-  -S, --sign-secret-key <SIGN_SECRET_KEY>
-          Enable url signature (signature secret key)
   -T, --tb-enable
           Enable token bucket flow limitation
       --tb-store-strategy <TB_STORE_STRATEGY>
@@ -236,12 +267,6 @@ Options:
           Token bucket fill rate [default: 1]
       --tb-expired <TB_EXPIRED>
           Token bucket expired (seconds) [default: 86400]
-      --cf-site-key <CF_SITE_KEY>
-          Cloudflare turnstile captcha site key [env: CF_SECRET_KEY=]
-      --cf-secret-key <CF_SECRET_KEY>
-          Cloudflare turnstile captcha secret key [env: CF_SITE_KEY=]
-  -D, --disable-webui
-          Disable WebUI [env: DISABLE_WEBUI=]
   -h, --help
           Print help
 ```
@@ -267,26 +292,8 @@ Options:
 - Linux compile, Ubuntu machine for example:
 
 ```shell
-
-sudo apt update -y && sudo apt install rename
-
-# Native compilation
 git clone https://github.com/gngpp/ninja.git && cd ninja
-./build.sh
-
-# Cross-platform compilation, relying on docker (if you can solve cross-platform compilation dependencies on your own)
-# Default using docker build linux/windows platform 
-./build_cross.sh
-# The MacOS platform is built on MacOS by default
-os=macos ./build_cross.sh 
-
-# Compile a single platform binary, take aarch64-unknown-linux-musl as an example: 
-docker run --rm -it --user=$UID:$(id -g $USER) \
-  -v $(pwd):/home/rust/src \
-  -v $HOME/.cargo/registry:/root/.cargo/registry \
-  -v $HOME/.cargo/git:/root/.cargo/git \
-  ghcr.io/gngpp/ninja-builder:x86_64-unknown-linux-musl \
-  cargo build --release
+cargo build --release
 ```
 
 - OpenWrt Compile
@@ -298,6 +305,12 @@ cd -
 make menuconfig # choose LUCI->Applications->luci-app-ninja  
 make V=s
 ```
+
+### Instructions
+
+- Open source projects can be modified, but please keep the original author information to avoid losing technical support.
+- Project is standing on the shoulders of other giants, thanks!
+- Submit an issue if there are errors, bugs, etc., and I will fix them.
 
 ### Preview
 

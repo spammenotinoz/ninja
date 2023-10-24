@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::OnceLock;
 
 use anyhow::anyhow;
@@ -13,7 +13,6 @@ use axum::headers::Authorization;
 use axum::http::header;
 use axum::http::HeaderMap;
 use axum::http::Response;
-use axum::response::IntoResponse;
 use axum::routing::any;
 use axum::routing::{get, post};
 use axum::Router;
@@ -29,15 +28,18 @@ use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 
 use crate::context;
+use crate::context::ContextArgs;
+use crate::debug;
 use crate::info;
+use crate::now_duration;
+use crate::serve;
 use crate::serve::err::ResponseError;
 use crate::serve::header_convert;
-use crate::serve::response_convert;
-use crate::serve::Launcher;
+use crate::serve::turnstile;
 use crate::serve::EMPTY;
 use crate::{
-    auth::{model::AuthAccount, AuthHandle},
-    model::AuthenticateToken,
+    auth::{model::AuthAccount, provide::AuthProvider},
+    token::model::AuthenticateToken,
     URL_CHATGPT_API,
 };
 
@@ -46,7 +48,8 @@ use super::get_static_resource;
 const DEFAULT_INDEX: &str = "/";
 const LOGIN_INDEX: &str = "/auth/login";
 const SESSION_ID: &str = "ninja_session";
-const BUILD_ID: &str = "oDTsXIohP85MnLZj7TlaB";
+const PUID_ID: &str = "_puid";
+const BUILD_ID: &str = "cdCfIN9NUpAX8XOZwcgjh";
 const TEMP_404: &str = "404.htm";
 const TEMP_AUTH: &str = "auth.htm";
 const TEMP_CHAT: &str = "chat.htm";
@@ -55,7 +58,6 @@ const TEMP_LOGIN: &str = "login.htm";
 const TEMP_SHARE: &str = "share.htm";
 
 static TEMPLATE: OnceLock<tera::Tera> = OnceLock::new();
-static TEMPLATE_DATA: OnceLock<TemplateData> = OnceLock::new();
 
 #[derive(Serialize, Deserialize)]
 struct Session {
@@ -63,7 +65,6 @@ struct Session {
     access_token: String,
     user_id: String,
     email: String,
-    picture: Option<String>,
     expires_in: i64,
     expires: i64,
 }
@@ -76,12 +77,12 @@ impl ToString for Session {
     }
 }
 
-impl TryFrom<&str> for Session {
-    type Error = ResponseError;
+impl FromStr for Session {
+    type Err = ResponseError;
 
-    fn try_from(value: &str) -> std::result::Result<Self, Self::Error> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let data = base64::engine::general_purpose::URL_SAFE
-            .decode(value)
+            .decode(s)
             .map_err(ResponseError::Unauthorized)?;
         serde_json::from_slice(&data).map_err(ResponseError::Unauthorized)
     }
@@ -89,56 +90,26 @@ impl TryFrom<&str> for Session {
 
 impl From<AuthenticateToken> for Session {
     fn from(value: AuthenticateToken) -> Self {
-        let refresh_token = if let Some(refresh_token) = value.refresh_token() {
-            Some(refresh_token.to_owned())
-        } else {
-            None
-        };
         Session {
             user_id: value.user_id().to_owned(),
             email: value.email().to_owned(),
-            picture: Some(value.picture().to_owned()),
             access_token: value.access_token().to_owned(),
             expires_in: value.expires_in(),
             expires: value.expires(),
-            refresh_token,
-        }
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Clone)]
-pub(super) struct TemplateData {
-    /// WebSite api prefix
-    api_prefix: Option<String>,
-    /// GPT-4 model arkose token endpoint
-    arkose_endpoint: Option<String>,
-    /// Cloudflare captcha site key
-    cf_site_key: Option<String>,
-    /// Cloudflare captcha secret key
-    cf_secret_key: Option<String>,
-}
-
-impl From<Launcher> for TemplateData {
-    fn from(value: Launcher) -> Self {
-        Self {
-            api_prefix: value.api_prefix,
-            cf_site_key: value.cf_site_key,
-            cf_secret_key: value.cf_secret_key,
-            arkose_endpoint: value.arkose_endpoint,
+            refresh_token: value.refresh_token().map(|v| v.to_owned()),
         }
     }
 }
 
 // this function could be located in a different module
-pub(super) fn config(router: Router, args: &Launcher) -> Router {
+pub(super) fn config(router: Router, args: &ContextArgs) -> Router {
     if !args.disable_ui {
-        let data = TEMPLATE_DATA.get_or_init(|| TemplateData::from(args.clone()));
-        if let Some(url) = data.api_prefix.as_ref() {
+        let ctx = context::get_instance();
+        if let Some(url) = ctx.api_prefix() {
             info!("WebUI site use API: {url}")
         }
 
-        if let Some(endpoint) = data.arkose_endpoint.as_ref() {
+        if let Some(endpoint) = ctx.arkose_endpoint() {
             info!("WebUI site use Arkose endpoint: {endpoint}")
         }
 
@@ -185,6 +156,7 @@ pub(super) fn config(router: Router, args: &Launcher) -> Router {
                         .expect("An error occurred while redirecting")
                 }),
             )
+            .route("/share/e/:share_id", get(get_share_chat))
             .route("/share/:share_id", get(get_share_chat))
             .route("/share/:share_id/continue", get(get_share_chat_continue))
             .route(
@@ -205,8 +177,6 @@ pub(super) fn config(router: Router, args: &Launcher) -> Router {
                 &format!("/_next/data/{BUILD_ID}/share/:share_id/continue.json"),
                 get(get_share_chat_continue_info),
             )
-            // user picture
-            .route("/_next/image", get(get_image))
             // static resource endpoints
             .route("/resources/*path", get(get_static_resource))
             .route("/_next/static/*path", get(get_static_resource))
@@ -236,25 +206,11 @@ async fn get_login() -> Result<Response<Body>, ResponseError> {
 
 async fn post_login(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    account: axum::Form<AuthAccount>,
+    mut account: axum::Form<AuthAccount>,
 ) -> Result<Response<Body>, ResponseError> {
-    let account = account.0;
-    if let Some(err) = cf_captcha_check(addr.ip(), account.cf_turnstile_response.as_deref())
-        .await
-        .err()
-    {
-        let mut ctx = tera::Context::new();
-        ctx.insert("username", &account.username);
-        ctx.insert("error", &err.msg());
-        return render_template(TEMP_LOGIN, &ctx);
-    }
+    turnstile::cf_turnstile_check(&addr.ip(), account.cf_turnstile_response.as_deref()).await?;
 
-    match context::Context::get_instance()
-        .await
-        .load_auth_client()
-        .do_access_token(&account)
-        .await
-    {
+    match serve::try_login(&mut account).await {
         Ok(access_token) => {
             let authentication_token = AuthenticateToken::try_from(access_token)
                 .map_err(ResponseError::InternalServerError)?;
@@ -275,10 +231,10 @@ async fn post_login(
                 .body(Body::empty())
                 .map_err(ResponseError::InternalServerError)?)
         }
-        Err(e) => {
+        Err(err) => {
             let mut ctx = tera::Context::new();
             ctx.insert("username", &account.username);
-            ctx.insert("error", &e.to_string());
+            ctx.insert("error", &err.to_string());
             render_template(TEMP_LOGIN, &ctx)
         }
     }
@@ -299,30 +255,13 @@ async fn post_login_token(
             "Get Profile Erorr"
         )))?;
 
-    let session = match context::Context::get_instance()
-        .await
-        .load_auth_client()
-        .do_get_user_picture(access_token)
-        .await
-    {
-        Ok(picture) => Session {
-            refresh_token: None,
-            access_token: access_token.to_owned(),
-            user_id: profile.user_id().to_owned(),
-            email: profile.email().to_owned(),
-            picture: picture,
-            expires_in: profile.expires_in(),
-            expires: profile.expires(),
-        },
-        Err(_) => Session {
-            user_id: profile.user_id().to_owned(),
-            email: profile.email().to_owned(),
-            picture: None,
-            access_token: access_token.to_owned(),
-            expires_in: profile.expires_in(),
-            expires: profile.expires(),
-            refresh_token: None,
-        },
+    let session = Session {
+        refresh_token: None,
+        access_token: access_token.to_owned(),
+        user_id: profile.user_id().to_owned(),
+        email: profile.email().to_owned(),
+        expires_in: profile.expires_in(),
+        expires: profile.expires(),
     };
 
     let cookie = cookie::Cookie::build(SESSION_ID, session.to_string())
@@ -346,14 +285,22 @@ async fn get_logout(jar: CookieJar) -> Result<Response<Body>, ResponseError> {
         match extract_session(c.value()) {
             Ok(session) => {
                 if let Some(refresh_token) = session.refresh_token {
-                    let ctx = context::Context::get_instance().await;
-                    let _a = ctx.load_auth_client().do_revoke_token(&refresh_token).await;
+                    let ctx = context::get_instance();
+                    let _a = ctx.auth_client().do_revoke_token(&refresh_token).await;
                 }
             }
             Err(_) => {}
         }
     }
-    let cookie = cookie::Cookie::build(SESSION_ID, EMPTY)
+    let session_cookie = cookie::Cookie::build(SESSION_ID, EMPTY)
+        .path(DEFAULT_INDEX)
+        .same_site(cookie::SameSite::Lax)
+        .max_age(time::Duration::seconds(0))
+        .secure(false)
+        .http_only(false)
+        .finish();
+
+    let puid_cookie = cookie::Cookie::build(PUID_ID, EMPTY)
         .path(DEFAULT_INDEX)
         .same_site(cookie::SameSite::Lax)
         .max_age(time::Duration::seconds(0))
@@ -364,42 +311,77 @@ async fn get_logout(jar: CookieJar) -> Result<Response<Body>, ResponseError> {
     Ok(Response::builder()
         .status(StatusCode::FOUND)
         .header(header::LOCATION, LOGIN_INDEX)
-        .header(header::SET_COOKIE, cookie.to_string())
+        .header(header::SET_COOKIE, session_cookie.to_string())
+        .header(header::SET_COOKIE, puid_cookie.to_string())
         .body(Body::empty())
         .map_err(ResponseError::InternalServerError)?)
 }
 
 async fn get_session(jar: CookieJar) -> Result<Response<Body>, ResponseError> {
     if let Some(cookie) = jar.get(SESSION_ID) {
+        // Extract session from cookie
         let session = extract_session(cookie.value())?;
 
-        let time = time::OffsetDateTime::from_unix_timestamp(session.expires)
-            .map_err(ResponseError::InternalServerError)?;
-        let expires = time
-            .format(&Rfc3339)
-            .map_err(ResponseError::InternalServerError)?;
+        let current_timestamp = now_duration()?.as_secs() as i64;
 
-        let props = serde_json::json!({
-            "user": {
-                "id": session.user_id,
-                "name": session.email,
-                "email": session.email,
-                "image": session.picture,
-                "picture": session.picture,
-                "groups": [],
-            },
-            "expires" : expires,
-            "accessToken": session.access_token,
-            "authProvider": "auth0"
-        });
+        if session.expires < current_timestamp {
+            return redirect_login();
+        }
 
-        return Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header(header::LOCATION, LOGIN_INDEX)
-            .header(header::SET_COOKIE, cookie.to_string())
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(props.to_string()))
-            .map_err(ResponseError::InternalServerError)?);
+        fn to_body(session: Session) -> anyhow::Result<String> {
+            let expires = time::OffsetDateTime::from_unix_timestamp(session.expires)
+                .map(|v| v.format(&Rfc3339))??;
+            let props = serde_json::json!({
+                "user": {
+                    "id": session.user_id,
+                    "name": session.email,
+                    "email": session.email,
+                    "image": null,
+                    "picture": null,
+                    "groups": [],
+                },
+                "expires" : expires,
+                "accessToken": session.access_token,
+                "authProvider": "auth0"
+            });
+            Ok(props.to_string())
+        }
+
+        fn to_response(
+            session: Session,
+            cookie: &cookie::Cookie,
+        ) -> Result<Response<Body>, ResponseError> {
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(header::LOCATION, LOGIN_INDEX)
+                .header(header::SET_COOKIE, cookie.to_string())
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(to_body(session)?))
+                .map_err(ResponseError::InternalServerError)?)
+        }
+
+        if let Some(refresh_token) = session.refresh_token.as_ref() {
+            if session.expires - current_timestamp <= (session.expires_in / 5) {
+                let ctx = context::get_instance();
+                match ctx.auth_client().do_refresh_token(&refresh_token).await {
+                    Ok(refresh_token) => {
+                        let authentication_token = AuthenticateToken::try_from(refresh_token)?;
+                        let session = Session::from(authentication_token);
+                        let cookie = cookie::Cookie::build(SESSION_ID, session.to_string())
+                            .path(DEFAULT_INDEX)
+                            .same_site(cookie::SameSite::Lax)
+                            .max_age(time::Duration::seconds(session.expires_in))
+                            .secure(false)
+                            .http_only(false)
+                            .finish();
+                        return to_response(session, &cookie);
+                    }
+                    Err(err) => debug!("Refresh token error: {}", err),
+                }
+            }
+        }
+
+        return to_response(session, cookie);
     }
     redirect_login()
 }
@@ -426,8 +408,8 @@ async fn get_chat(
                                 "id": session.user_id,
                                 "name": session.email,
                                 "email": session.email,
-                                "image": session.picture,
-                                "picture": session.picture,
+                                "image": null,
+                                "picture": null,
                                 "groups": [],
                             },
                             "serviceStatus": {},
@@ -444,6 +426,7 @@ async fn get_chat(
                     "page": "/[[...default]]",
                     "query": query.0,
                     "buildId": BUILD_ID,
+                    "assetPrefix": "https://cdn.oaistatic.com",
                     "isFallback": false,
                     "gssp": true,
                     "scriptLoader": []
@@ -472,8 +455,8 @@ async fn get_chat_info(jar: CookieJar) -> Result<Response<Body>, ResponseError> 
                             "id": session.user_id,
                             "name": session.email,
                             "email": session.email,
-                            "image": session.picture,
-                            "picture": session.picture,
+                            "image": null,
+                            "picture": null,
                             "groups": [],
                         },
                         "serviceStatus": {},
@@ -510,7 +493,7 @@ async fn get_chat_info(jar: CookieJar) -> Result<Response<Body>, ResponseError> 
 }
 
 async fn get_share_chat(
-    headers: HeaderMap,
+    mut headers: HeaderMap,
     jar: CookieJar,
     share_id: Path<String>,
 ) -> Result<Response<Body>, ResponseError> {
@@ -518,13 +501,13 @@ async fn get_share_chat(
     if let Some(cookie) = jar.get(SESSION_ID) {
         return match extract_session(cookie.value()) {
             Ok(session) => {
-                let ctx = context::Context::get_instance().await;
+                set_auth_header(&mut headers, &session.access_token)?;
+                let ctx = context::get_instance();
                 let url = get_url();
                 let resp = ctx
-                    .load_client()
+                    .client()
                     .get(format!("{url}/backend-api/share/{share_id}"))
                     .headers(header_convert(&headers, &jar).await?)
-                    .bearer_auth(session.access_token)
                     .send()
                     .await
                     .map_err(ResponseError::InternalServerError)?;
@@ -563,6 +546,7 @@ async fn get_share_chat(
                                         "shareParams": vec![share_id]
                                     },
                                     "buildId": BUILD_ID,
+                                    "assetPrefix": "https://cdn.oaistatic.com",
                                     "isFallback": false,
                                     "gssp": true,
                                     "scriptLoader": []
@@ -585,6 +569,7 @@ async fn get_share_chat(
                             "page": "/_error",
                             "query": {},
                             "buildId": BUILD_ID,
+                            "assetPrefix": "https://cdn.oaistatic.com",
                             "nextExport": true,
                             "isFallback": false,
                             "gip": true,
@@ -617,20 +602,20 @@ async fn get_share_chat(
 }
 
 async fn get_share_chat_info(
-    headers: HeaderMap,
+    mut headers: HeaderMap,
     jar: CookieJar,
     share_id: Path<String>,
 ) -> Result<Response<Body>, ResponseError> {
     let share_id = share_id.0.replace(".json", "");
     if let Some(cookie) = jar.get(SESSION_ID) {
         if let Ok(session) = extract_session(cookie.value()) {
-            let ctx = context::Context::get_instance().await;
+            set_auth_header(&mut headers, &session.access_token)?;
+            let ctx = context::get_instance();
             let url = get_url();
             let resp = ctx
-                .load_client()
+                .client()
                 .get(format!("{url}/backend-api/share/{share_id}"))
                 .headers(header_convert(&headers, &jar).await?)
-                .bearer_auth(session.access_token)
                 .send()
                 .await
                 .map_err(ResponseError::InternalServerError)?;
@@ -702,20 +687,20 @@ async fn get_share_chat_continue(share_id: Path<String>) -> Result<Response<Body
 }
 
 async fn get_share_chat_continue_info(
-    headers: HeaderMap,
+    mut headers: HeaderMap,
     jar: CookieJar,
     share_id: Path<String>,
 ) -> Result<Response<Body>, ResponseError> {
     if let Some(cookie) = jar.get(SESSION_ID) {
         return match extract_session(cookie.value()) {
             Ok(session) => {
-                let ctx = context::Context::get_instance().await;
+                set_auth_header(&mut headers, &session.access_token)?;
+                let ctx = context::get_instance();
                 let url = get_url();
                 let resp = ctx
-                    .load_client()
+                    .client()
                     .get(format!("{url}/backend-api/share/{}", share_id.0))
                     .headers(header_convert(&headers, &jar).await?)
-                    .bearer_auth(session.access_token)
                     .send()
                     .await
                     .map_err(ResponseError::InternalServerError)?;
@@ -739,8 +724,8 @@ async fn get_share_chat_continue_info(
                                     "id": session.user_id,
                                     "name": session.email,
                                     "email": session.email,
-                                    "image": session.picture,
-                                    "picture": session.picture,
+                                    "image": null,
+                                    "picture": null,
                                     "groups": [],
                                 },
                                 "serviceStatus": {},
@@ -763,8 +748,8 @@ async fn get_share_chat_continue_info(
                                         "id": session.user_id,
                                         "name": session.email,
                                         "email": session.email,
-                                        "image": session.picture,
-                                        "picture": session.picture,
+                                        "image": null,
+                                        "picture": null,
                                         "groups": [],
                                     },
                                     "serviceStatus": {},
@@ -817,21 +802,6 @@ async fn get_share_chat_continue_info(
     redirect_login()
 }
 
-async fn get_image(
-    params: Option<axum::extract::Query<ImageQuery>>,
-) -> Result<impl IntoResponse, ResponseError> {
-    let query = params.ok_or(ResponseError::BadRequest(anyhow::anyhow!(
-        "Missing URL parameter"
-    )))?;
-    let resp = context::Context::get_instance()
-        .await
-        .load_client()
-        .get(&query.url)
-        .send()
-        .await;
-    response_convert(resp)
-}
-
 async fn error_404() -> Result<Response<Body>, ResponseError> {
     let mut ctx = tera::Context::new();
     let props = json!(
@@ -842,6 +812,7 @@ async fn error_404() -> Result<Response<Body>, ResponseError> {
             "page": "/_error",
             "query": {},
             "buildId": BUILD_ID,
+            "assetPrefix": "https://cdn.oaistatic.com",
             "nextExport": true,
             "isFallback": false,
             "gip": false,
@@ -856,7 +827,7 @@ async fn error_404() -> Result<Response<Body>, ResponseError> {
 }
 
 fn extract_session(cookie_value: &str) -> Result<Session, ResponseError> {
-    Session::try_from(cookie_value)
+    Session::from_str(cookie_value)
         .map_err(|_| ResponseError::Unauthorized(anyhow!("invalid session")))
         .and_then(|session| match check_token(&session.access_token) {
             Ok(_) => Ok(session),
@@ -887,14 +858,14 @@ fn render_template(name: &str, context: &tera::Context) -> Result<Response<Body>
 }
 
 fn settings_template_data(ctx: &mut tera::Context) {
-    let data = TEMPLATE_DATA.get().expect("template data not init");
-    if let Some(site_key) = &data.cf_site_key {
-        ctx.insert("site_key", site_key);
+    let g_ctx = context::get_instance();
+    if let Some(site_key) = g_ctx.cf_turnstile() {
+        ctx.insert("site_key", &site_key.site_key);
     }
-    if let Some(api_prefix) = &data.api_prefix {
+    if let Some(api_prefix) = g_ctx.api_prefix() {
         ctx.insert("api_prefix", api_prefix);
     }
-    if let Some(arkose_endpoint) = &data.arkose_endpoint {
+    if let Some(arkose_endpoint) = g_ctx.arkose_endpoint() {
         ctx.insert("arkose_endpoint", arkose_endpoint)
     }
 }
@@ -904,63 +875,27 @@ fn check_token(token: &str) -> Result<(), ResponseError> {
     Ok(())
 }
 
-async fn cf_captcha_check(addr: IpAddr, cf_response: Option<&str>) -> Result<(), ResponseError> {
-    let data = TEMPLATE_DATA.get().expect("template data not init");
-    if data.cf_site_key.is_some() && data.cf_secret_key.is_some() {
-        let cf_response = cf_response.ok_or(ResponseError::BadRequest(anyhow::anyhow!(
-            "Missing cf_captcha_response"
-        )))?;
-
-        if cf_response.is_empty() {
-            return Err(ResponseError::BadRequest(anyhow::anyhow!(
-                "Missing cf_captcha_response"
-            )));
-        }
-
-        let form = CfCaptchaForm {
-            secret: data.cf_secret_key.as_ref().expect("cf_secret_key not init"),
-            response: cf_response,
-            remoteip: &addr.to_string(),
-            idempotency_key: crate::uuid::uuid(),
-        };
-
-        let resp = context::Context::get_instance()
-            .await
-            .load_client()
-            .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
-            .form(&form)
-            .send()
-            .await
-            .map_err(ResponseError::InternalServerError)?;
-
-        let _ = resp
-            .error_for_status()
-            .map_err(ResponseError::Unauthorized)?;
-
-        return Ok(());
-    };
-    Ok(())
-}
-
 fn get_url() -> &'static str {
-    let data = TEMPLATE_DATA.get().expect("template data not init");
-    match data.api_prefix.as_ref() {
-        Some(ref api_prefix) => api_prefix,
+    let ctx = context::get_instance();
+    match ctx.api_prefix() {
+        Some(api_prefix) => api_prefix,
         None => URL_CHATGPT_API,
     }
 }
+
+fn set_auth_header(headers: &mut HeaderMap, access_token: &str) -> Result<(), ResponseError> {
+    headers.insert(
+        header::AUTHORIZATION,
+        header::HeaderValue::from_str(&format!("Bearer {access_token}"))
+            .map_err(|err| ResponseError::BadRequest(anyhow!(err)))?,
+    );
+    Ok(())
+}
+
 #[allow(dead_code)]
 #[derive(serde::Deserialize)]
 struct ImageQuery {
     url: String,
     w: String,
     q: String,
-}
-
-#[derive(serde::Serialize)]
-struct CfCaptchaForm<'a> {
-    secret: &'a str,
-    response: &'a str,
-    remoteip: &'a str,
-    idempotency_key: String,
 }

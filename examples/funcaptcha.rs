@@ -1,6 +1,8 @@
+use openai::arkose;
+use openai::arkose::funcaptcha::solver::SubmitSolver;
 use openai::arkose::funcaptcha::Solver;
 use openai::arkose::{
-    funcaptcha::{self, solver::SubmitSolverBuilder, start_challenge},
+    funcaptcha::{self, start_challenge},
     ArkoseToken,
 };
 use std::str::FromStr;
@@ -8,11 +10,12 @@ use tokio::sync::OnceCell;
 use tokio::time::Instant;
 
 static KEY: OnceCell<String> = OnceCell::const_new();
-
 static SOLVER: OnceCell<Solver> = OnceCell::const_new();
+static SOLVER_TYPE: OnceCell<String> = OnceCell::const_new();
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::init();
     let key = KEY
         .get_or_init(|| async { std::env::var("KEY").expect("Need solver client key") })
         .await;
@@ -24,17 +27,26 @@ async fn main() -> anyhow::Result<()> {
         })
         .await;
 
-    // start time
-    let start_time = Instant::now();
+    let solver_type = SOLVER_TYPE
+        .get_or_init(|| async { std::env::var("SOLVER_TYPE").expect("Need solver type") })
+        .await;
 
-    let arkose_token = ArkoseToken::new_platform().await?;
+    let t = match solver_type.as_str() {
+        "auth" => arkose::Type::Auth0,
+        "platform" => arkose::Type::Platform,
+        "chat3" => arkose::Type::Chat3,
+        "chat4" => arkose::Type::Chat4,
+        _ => anyhow::bail!("Not support solver type: {solver_type}"),
+    };
+
+    // start time
+    let now = Instant::now();
+
+    let arkose_token = ArkoseToken::new(t).await?;
 
     parse(arkose_token, solver, key).await?;
 
-    // use time
-    let elapsed_time = Instant::now() - start_time;
-
-    println!("Function execution time: {} ms", elapsed_time.as_millis());
+    println!("Function execution time: {:?}", now.elapsed());
     Ok(())
 }
 
@@ -54,12 +66,12 @@ async fn parse(
                             let (tx, rx) = tokio::sync::mpsc::channel(funs.len());
                             for (i, fun) in funs.iter().enumerate() {
                                 let sender = tx.clone();
-                                let submit_task = SubmitSolverBuilder::default()
+                                let submit_task = SubmitSolver::builder()
                                     .solved(solver)
                                     .client_key(key)
                                     .question(fun.instructions.clone())
                                     .image(fun.image.clone())
-                                    .build()?;
+                                    .build();
                                 tokio::spawn(async move {
                                     let res = funcaptcha::solver::submit_task(submit_task).await;
                                     if let Some(err) = sender.send((i, res)).await.err() {
@@ -88,12 +100,12 @@ async fn parse(
                                     .into_iter()
                                     .map(|item| item.image.clone())
                                     .collect::<Vec<String>>();
-                                let submit_task = SubmitSolverBuilder::default()
+                                let submit_task = SubmitSolver::builder()
                                     .solved(solver)
                                     .client_key(key)
                                     .question(data.0)
                                     .images(images)
-                                    .build()?;
+                                    .build();
                                 let sender = tx.clone();
                                 tokio::spawn(async move {
                                     let res = funcaptcha::solver::submit_task(submit_task).await;

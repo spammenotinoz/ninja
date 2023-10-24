@@ -1,7 +1,11 @@
 use std::{ops::Not, path::PathBuf};
 
 use clap::CommandFactory;
-use openai::{arkose::funcaptcha::Solver, serve::tokenbucket::Strategy};
+use openai::{
+    arkose::funcaptcha::ArkoseSolver,
+    context::ContextArgs,
+    serve::{middleware::tokenbucket::Strategy, Launcher},
+};
 
 use crate::{
     args::{self, ServeArgs},
@@ -19,16 +23,13 @@ pub(super) fn serve(mut args: ServeArgs, relative_path: bool) -> anyhow::Result<
         args = toml::from_str::<ServeArgs>(&data)?;
     }
 
-    let puid_user = if let Some(puid_user) = args.puid_user {
-        (Some(puid_user.0), Some(puid_user.1), puid_user.2)
-    } else {
-        (None, None, None)
-    };
+    #[cfg(target_os = "linux")]
+    crate::env::sysctl_ipv6_no_local_bind(args.ipv6_subnet.is_some());
 
     // disable_direct and proxies are mutually exclusive
     if args.disable_direct {
         if args.proxies.is_none() || args.proxies.clone().is_some_and(|x| x.is_empty()) {
-            let mut cmd = args::Opt::command();
+            let mut cmd = args::cmd::Opt::command();
             cmd.error(
                 clap::error::ErrorKind::ArgumentConflict,
                 "Cannot disable direct connection and not set proxies",
@@ -37,35 +38,48 @@ pub(super) fn serve(mut args: ServeArgs, relative_path: bool) -> anyhow::Result<
         }
     }
 
-    let mut builder = openai::serve::LauncherBuilder::default();
-    let builder = builder
+    let arkose_sovler = match args.arkose_solver_key.as_ref() {
+        Some(key) => Some(ArkoseSolver::new(args.arkose_solver.clone(), key.clone())),
+        None => None,
+    };
+
+    // Set the log level
+    std::env::set_var("RUST_LOG", args.level);
+
+    let builder = ContextArgs::builder()
         .host(
             args.host
-                .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0))),
+                .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))
+                .to_string(),
         )
         .port(args.port.unwrap_or(7999))
+        .interface(args.interface)
+        .ipv6_subnet(args.ipv6_subnet)
         .proxies(args.proxies.unwrap_or_default())
         .disable_direct(args.disable_direct)
+        .cookie_store(args.cookie_store)
         .api_prefix(args.api_prefix)
-        .arkose_endpoint(args.arkose_endpoint)
-        .arkose_har_file(args.arkose_har_file)
-        .arkose_har_upload_key(args.arkose_har_upload_key)
-        .arkose_token_endpoint(args.arkose_token_endpoint)
-        .tls_keypair(None)
+        .preauth_api(args.preauth_api)
         .tcp_keepalive(args.tcp_keepalive)
+        .pool_idle_timeout(args.pool_idle_timeout)
         .timeout(args.timeout)
         .connect_timeout(args.connect_timeout)
         .workers(args.workers)
         .concurrent_limit(args.concurrent_limit)
+        .tls_cert(args.tls_cert)
+        .tls_key(args.tls_key)
+        .auth_key(args.auth_key)
         .cf_site_key(args.cf_site_key)
         .cf_secret_key(args.cf_secret_key)
         .disable_ui(args.disable_webui)
-        .puid(args.puid)
-        .puid_email(puid_user.0)
-        .puid_password(puid_user.1)
-        .arkose_solver(args.arkose_solver)
-        .arkose_solver_key(args.arkose_solver_key)
-        .puid_mfa(puid_user.2);
+        .arkose_endpoint(args.arkose_endpoint)
+        .arkose_chat3_har_file(args.arkose_chat3_har_file)
+        .arkose_chat4_har_file(args.arkose_chat4_har_file)
+        .arkose_auth_har_file(args.arkose_auth_har_file)
+        .arkose_platform_har_file(args.arkose_platform_har_file)
+        .arkose_har_upload_key(args.arkose_har_upload_key)
+        .arkose_token_endpoint(args.arkose_token_endpoint)
+        .arkose_solver(arkose_sovler);
 
     #[cfg(feature = "limit")]
     let builder = builder
@@ -76,16 +90,7 @@ pub(super) fn serve(mut args: ServeArgs, relative_path: bool) -> anyhow::Result<
         .tb_fill_rate(args.tb_fill_rate)
         .tb_expired(args.tb_expired);
 
-    #[cfg(feature = "sign")]
-    let mut builder = builder.sign_secret_key(args.sign_secret_key);
-
-    if args.tls_key.is_some() && args.tls_cert.is_some() {
-        builder = builder.tls_keypair(Some((
-            args.tls_cert.expect("tls_cert not init"),
-            args.tls_key.expect("tls_key not init"),
-        )));
-    }
-    builder.build()?.run()
+    Launcher::new(builder.build()).run()
 }
 
 #[cfg(target_family = "unix")]
@@ -98,6 +103,8 @@ pub(super) fn serve_start(mut args: ServeArgs) -> anyhow::Result<()> {
     };
 
     check_root();
+    #[cfg(target_os = "linux")]
+    crate::env::sysctl_ipv6_no_local_bind(args.ipv6_subnet.is_some());
 
     if let Some(pid) = get_pid() {
         println!("Ninja is already running with pid: {}", pid);
@@ -241,37 +248,22 @@ pub(super) fn generate_template(out: Option<PathBuf>) -> anyhow::Result<()> {
     };
 
     let args = args::ServeArgs {
-        config: None,
         host: Some("0.0.0.0".parse()?),
         port: Some(7999),
         workers: 1,
         concurrent_limit: 65535,
-        proxies: None,
         timeout: 600,
         connect_timeout: 60,
         tcp_keepalive: 60,
-        tls_cert: None,
-        tls_key: None,
-        api_prefix: None,
-        arkose_endpoint: None,
-        arkose_token_endpoint: None,
-        sign_secret_key: None,
-        tb_enable: false,
         tb_store_strategy: Strategy::Mem,
         tb_redis_url: "redis://127.0.0.1:6379".to_string(),
+        tb_enable: false,
         tb_capacity: 60,
         tb_fill_rate: 1,
         tb_expired: 86400,
-        cf_site_key: None,
-        cf_secret_key: None,
-        disable_webui: false,
-        puid_user: None,
-        puid: None,
-        arkose_har_file: None,
-        arkose_har_upload_key: None,
-        disable_direct: false,
-        arkose_solver: Solver::Yescaptcha,
-        arkose_solver_key: None,
+        cookie_store: true,
+        pool_idle_timeout: 90,
+        ..args::ServeArgs::default()
     };
 
     let write = |out: PathBuf, args: ServeArgs| -> anyhow::Result<()> {

@@ -1,8 +1,9 @@
 use crate::arkose::ArkoseToken;
-use crate::context::Context;
+use crate::arkose::Type;
+use crate::context;
+use crate::context::ContextArgs;
 use crate::serve::err::ResponseError;
 use crate::serve::router::STATIC_FILES;
-use crate::serve::Launcher;
 use axum::body::Body;
 use axum::http::header;
 use axum::http::method::Method;
@@ -16,7 +17,7 @@ use axum::{
 };
 use std::collections::HashMap;
 
-pub(super) fn config(router: Router, args: &Launcher) -> Router {
+pub(super) fn config(router: Router, args: &ContextArgs) -> Router {
     if args.arkose_endpoint.is_none() {
         return router
             .route("/cdn/*path", any(proxy))
@@ -38,18 +39,38 @@ async fn proxy(
         .iter()
         .find(|(k, _v)| k.contains(uri.path()))
     {
+        let mime_type = if v.mime_type.eq("application/octet-stream") {
+            "text/html"
+        } else {
+            v.mime_type
+        };
         return Ok(Response::builder()
             .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, v.mime_type)
+            .header(header::CONTENT_TYPE, mime_type)
             .body(Body::from(v.data))
             .map_err(ResponseError::InternalServerError)?);
     }
 
-    if uri
-        .path()
-        .eq("/fc/gt2/public_key/35536E1E-65B4-4D96-9D97-6ADB7EFF8147")
-    {
-        if let Ok(arkose_token) = ArkoseToken::new_from_context().await {
+    let req_path = uri.path();
+
+    if req_path.contains("/fc/gt2/public_key/") {
+        let arkose_res = match req_path {
+            s if s.contains("3D86FBBA-9D22-402A-B512-3420086BA6CC") => {
+                ArkoseToken::new_from_context(Type::Chat3).await
+            }
+            s if s.contains("35536E1E-65B4-4D96-9D97-6ADB7EFF8147") => {
+                ArkoseToken::new_from_context(Type::Chat4).await
+            }
+            s if s.contains("0A1D34FC-659D-4E23-B17B-694DCFCF6A6C") => {
+                ArkoseToken::new_from_context(Type::Auth0).await
+            }
+            s if s.contains("23AAD243-4799-4A9E-B01D-1166C5DE02DF") => {
+                ArkoseToken::new_from_context(Type::Platform).await
+            }
+            _ => Err(anyhow::anyhow!("Invalid public key: {req_path}")),
+        };
+
+        if let Ok(arkose_token) = arkose_res {
             if arkose_token.success() {
                 let target = serde_json::json!({
                     "token": arkose_token,
@@ -88,7 +109,7 @@ async fn proxy(
     headers.remove(header::CONTENT_TYPE);
     headers.remove(header::CONTENT_LENGTH);
 
-    let client = Context::get_instance().await.load_client();
+    let client = context::get_instance().client();
 
     let url = format!("https://client-api.arkoselabs.com{}", uri.path());
     let resp = match body {

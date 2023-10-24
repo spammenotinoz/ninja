@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/gngpp/ninja/actions/workflows/CI.yml/badge.svg)](https://github.com/gngpp/ninja/actions/workflows/CI.yml)
 [![CI](https://github.com/gngpp/ninja/actions/workflows/Release.yml/badge.svg)](https://github.com/gngpp/ninja/actions/workflows/Release.yml)
- <a target="_blank" href="https://github.com/gngpp/vdns/blob/main/LICENSE">
-  <img src="https://img.shields.io/badge/license-MIT-blue.svg"/>
+ <a target="_blank" href="https://github.com/gngpp/ninja/blob/main/LICENSE">
+  <img src="https://img.shields.io/badge/license-GPL_3.0-blue.svg"/>
  </a>
   <a href="https://github.com/gngpp/ninja/releases">
     <img src="https://img.shields.io/github/release/gngpp/ninja.svg?style=flat">
@@ -28,13 +28,6 @@
 
 > 局限性: 无法绕过 OpenAI 的彻底 IP 禁令
 
-### 绕过IP限制
-
-这里`IP限制`是指`OpenAI`对`单IP`请求速率限制，你需要了解什么是`puid`，默认请求models接口返回`puid cookie`。
-另外，`GPT-4`会话必须带上`puid`发送，在使用第三方客户端发送`GPT-4`会话时可能不会保存也不会获取`puid`，你需要在服务端处理:
-
-- 使用启动参数`--puid`单独设置共享使用，此方式不支持更新
-- 使用启动参数`--puid-user`，设置`Account Plus`账号来获取`puid`，并且会定时更新
 
 ### ArkoseLabs
 
@@ -42,12 +35,14 @@
 
 1) 获取`Arkose Token`的端点，不管你用什么方式，使用 `--arkose-token-endpoint` 指定端点获取token，支持的`JSON`格式，一般按照社区的格式：`{"token":"xxxxxx"}`
 
-2) 使用HAR，`ChatGPT` 官网发送一次 `GPT4` 会话消息，浏览器 `F12` 下载 `https://tcr9i.chat.openai.com/fc/gt2/public_key/35536E1E-65B4-4D96-9D97-6ADB7EFF8147` 接口的HAR日志记录文件，使用启动参数 `--arkose-har-file` 指定HAR文件路径使用（不指定路径则使用默认路径`~/chat.openai.com.har`，可直接上传更新HAR），支持上传更新HAR，请求路径:`/har/upload`，可选上传身份验证参数:`--arkose-har-upload-key`
+2) 使用HAR，`ChatGPT` 官网发送一次 `GPT4` 会话消息，浏览器 `F12` 下载 `https://tcr9i.chat.openai.com/fc/gt2/public_key/35536E1E-65B4-4D96-9D97-6ADB7EFF8147` 接口的HAR日志记录文件，使用启动参数 `--arkose-chat-har-file` 指定HAR文件路径使用（不指定路径则使用默认路径`~/.chat.openai.com.har`，可直接上传更新HAR），支持上传更新HAR，请求路径:`/har/upload`，可选上传身份验证参数:`--arkose-har-upload-key`
 
 3) 使用[YesCaptcha](https://yescaptcha.com/i/1Cc5i4) / [CapSolver](https://dashboard.capsolver.com/passport/register?inviteCode=y7CtB_a-3X6d)平台进行验证码解析，启动参数`--arkose-solver`选择平台（默认使用`YesCaptcha`），`--arkose-solver-key` 填写`Client Key`
 
 - 三种方案都使用，优先级是：`HAR` > `YesCaptcha` / `CapSolver` > `Arkose Token 端点`
 - `YesCaptcha` / `CapSolver`推荐搭配HAR使用，出验证码则调用解析器处理，验证后HAR使用更持久
+
+> 目前OpenAI已经更新登录需要验证`Arkose Token`，解决方式同GPT4，填写启动参数指定HAR文件`--arkose-auth-har-file`。不想上传，可以通过浏览器打码登录，非必需。
 
 ### Command Line(dev)
 
@@ -96,9 +91,9 @@
   GitHub [Releases](https://github.com/gngpp/ninja/releases/latest) 中有预编译的 deb包，二进制文件，以Ubuntu为例：
 
 ```shell
-wget https://github.com/gngpp/ninja/releases/download/v0.5.7/ninja-0.5.7-x86_64-unknown-linux-musl.deb
-dpkg -i ninja-0.5.7-x86_64-unknown-linux-musl.deb
-ninja serve run
+wget https://github.com/gngpp/ninja/releases/download/v0.7.1/ninja-0.7.1-x86_64-unknown-linux-musl.deb
+dpkg -i ninja-0.7.1-x86_64-unknown-linux-musl.deb
+ninja run
 ```
 
 - #### OpenWrt
@@ -106,13 +101,13 @@ ninja serve run
 GitHub [Releases](https://github.com/gngpp/ninja/releases/latest) 中有预编译的 ipk 文件， 目前提供了 aarch64/x86_64 等架构的版本，下载后使用 opkg 安装，以 nanopi r4s 为例：
 
 ```shell
-wget https://github.com/gngpp/ninja/releases/download/v0.5.7/ninja_0.5.7_aarch64_generic.ipk
-wget https://github.com/gngpp/ninja/releases/download/v0.5.7/luci-app-ninja_1.0.9-1_all.ipk
-wget https://github.com/gngpp/ninja/releases/download/v0.5.7/luci-i18n-ninja-zh-cn_1.0.9-1_all.ipk
+wget https://github.com/gngpp/ninja/releases/download/v0.7.1/ninja_0.7.1_aarch64_generic.ipk
+wget https://github.com/gngpp/ninja/releases/download/v0.7.1/luci-app-ninja_1.1.3-1_all.ipk
+wget https://github.com/gngpp/ninja/releases/download/v0.7.1/luci-i18n-ninja-zh-cn_1.1.3-1_all.ipk
 
-opkg install ninja_0.5.7_aarch64_generic.ipk
-opkg install luci-app-ninja_1.0.9-1_all.ipk
-opkg install luci-i18n-ninja-zh-cn_1.0.9-1_all.ipk
+opkg install ninja_0.7.1_aarch64_generic.ipk
+opkg install luci-app-ninja_1.1.3-1_all.ipk
+opkg install luci-i18n-ninja-zh-cn_1.1.3-1_all.ipk
 ```
 
 - #### Docker
@@ -121,7 +116,7 @@ opkg install luci-i18n-ninja-zh-cn_1.0.9-1_all.ipk
 docker run --rm -it -p 7999:7999 --name=ninja \
   -e WORKERS=1 \
   -e LOG=info \
-  gngpp/ninja:latest serve run
+  gngpp/ninja:latest run
 ```
 
 - Docker Compose
@@ -147,7 +142,7 @@ services:
     # volumes:
       # - ${PWD}/ssl:/etc
       # - ${PWD}/serve.toml:/serve.toml
-    command: serve run
+    command: run
     ports:
       - "8080:7999"
     depends_on:
@@ -171,18 +166,37 @@ services:
 ### 命令手册
 
 ```shell
-$ ninja serve --help
-Start the http server
+$ ninja --help
+Reverse engineered ChatGPT proxy
 
-Usage: ninja serve run [OPTIONS]
+Usage: ninja [COMMAND]
+
+Commands:
+  run      Run the HTTP server
+  stop     Stop the HTTP server daemon
+  start    Start the HTTP server daemon
+  restart  Restart the HTTP server daemon
+  status   Status of the Http server daemon process
+  log      Show the Http server daemon log
+  gt       Generate config template file (toml format file)
+  help     Print this message or the help of the given subcommand(s)
 
 Options:
+  -h, --help     Print help
+  -V, --version  Print version
+
+$ ninja run --help
+Run the HTTP server
+
+Usage: ninja run [OPTIONS]
+
+Options:
+  -L, --level <LEVEL>
+          Log level (info/debug/warn/trace/error) [env: LOG=] [default: info]
   -C, --config <CONFIG>
           Configuration file path (toml format file) [env: CONFIG=]
   -H, --host <HOST>
           Server Listen host [env: HOST=] [default: 0.0.0.0]
-  -L, --level <LEVEL>
-          Log level (info/debug/warn/trace/error) [env: LOG=] [default: info]
   -P, --port <PORT>
           Server Listen port [env: PORT=] [default: 7999]
   -W, --workers <WORKERS>
@@ -191,38 +205,56 @@ Options:
           Enforces a limit on the concurrent number of requests the underlying [default: 65535]
   -x, --proxies <PROXIES>
           Server proxies pool, Example: protocol://user:pass@ip:port [env: PROXIES=]
+  -i, --interface <INTERFACE>
+          Bind address for outgoing connections (or IPv6 subnet fallback to Ipv4) [env: INTERFACE=]
+  -I, --ipv6-subnet <IPV6_SUBNET>
+          IPv6 subnet, Example: 2001:19f0:6001:48e4::/64 [env: IPV4_SUBNET=]
       --disable-direct
           Disable direct connection [env: DISABLE_DIRECT=]
+      --cookie-store
+          Enabled Cookie Store [env: COOKIE_STORE=]
       --timeout <TIMEOUT>
           Client timeout (seconds) [default: 600]
       --connect-timeout <CONNECT_TIMEOUT>
           Client connect timeout (seconds) [default: 60]
       --tcp-keepalive <TCP_KEEPALIVE>
           TCP keepalive (seconds) [default: 60]
+      --pool-idle-timeout <POOL_IDLE_TIMEOUT>
+          Set an optional timeout for idle sockets being kept-alive [default: 90]
       --tls-cert <TLS_CERT>
           TLS certificate file path [env: TLS_CERT=]
       --tls-key <TLS_KEY>
           TLS private key file path (EC/PKCS8/RSA) [env: TLS_KEY=]
-      --puid <PUID>
-          PUID cookie value of Plus account [env: PUID=]
-      --puid-user <PUID_USER>
-          Obtain the PUID of the Plus account user, Example: `user:pass` or `user:pass:mfa`
+  -A, --auth-key <AUTH_KEY>
+          Login Authentication Key [env: AUTH_KEY=]
       --api-prefix <API_PREFIX>
-          Web UI api prefix [env: UI_API_PREFIX=]
+          WebUI api prefix [env: API_PREFIX=]
+      --preauth-api <PREAUTH_API>
+          PreAuth Cookie API URL [env: PREAUTH_API=] [default: https://ai.fakeopen.com/auth/preauth]
+  -D, --disable-webui
+          Disable WebUI [env: DISABLE_WEBUI=]
+      --cf-site-key <CF_SITE_KEY>
+          Cloudflare turnstile captcha site key [env: CF_SECRET_KEY=]
+      --cf-secret-key <CF_SECRET_KEY>
+          Cloudflare turnstile captcha secret key [env: CF_SITE_KEY=]
       --arkose-endpoint <ARKOSE_ENDPOINT>
           Arkose endpoint, Example: https://client-api.arkoselabs.com
-  -A, --arkose-token-endpoint <ARKOSE_TOKEN_ENDPOINT>
+      --arkose-token-endpoint <ARKOSE_TOKEN_ENDPOINT>
           Get arkose token endpoint
-  -a, --arkose-har-file <ARKOSE_HAR_FILE>
-          About the browser HAR file path requested by ChatGPT ArkoseLabs
+      --arkose-chat3-har-file <ARKOSE_CHAT3_HAR_FILE>
+          About the browser HAR file path requested by ChatGPT GPT-3.5 ArkoseLabs
+      --arkose-chat4-har-file <ARKOSE_CHAT4_HAR_FILE>
+          About the browser HAR file path requested by ChatGPT GPT-4 ArkoseLabs
+      --arkose-auth-har-file <ARKOSE_AUTH_HAR_FILE>
+          About the browser HAR file path requested by Auth ArkoseLabs
+      --arkose-platform-har-file <ARKOSE_PLATFORM_HAR_FILE>
+          About the browser HAR file path requested by Platform ArkoseLabs
   -K, --arkose-har-upload-key <ARKOSE_HAR_UPLOAD_KEY>
           HAR file upload authenticate key
   -s, --arkose-solver <ARKOSE_SOLVER>
           About ArkoseLabs solver platform [default: yescaptcha]
   -k, --arkose-solver-key <ARKOSE_SOLVER_KEY>
           About the solver client key by ArkoseLabs
-  -S, --sign-secret-key <SIGN_SECRET_KEY>
-          Enable url signature (signature secret key)
   -T, --tb-enable
           Enable token bucket flow limitation
       --tb-store-strategy <TB_STORE_STRATEGY>
@@ -235,12 +267,6 @@ Options:
           Token bucket fill rate [default: 1]
       --tb-expired <TB_EXPIRED>
           Token bucket expired (seconds) [default: 86400]
-      --cf-site-key <CF_SITE_KEY>
-          Cloudflare turnstile captcha site key [env: CF_SECRET_KEY=]
-      --cf-secret-key <CF_SECRET_KEY>
-          Cloudflare turnstile captcha secret key [env: CF_SITE_KEY=]
-  -D, --disable-webui
-          Disable WebUI [env: DISABLE_WEBUI=]
   -h, --help
           Print help
 ```
@@ -266,23 +292,8 @@ Options:
 - Linux编译，Ubuntu机器为例:
 
 ```shell
-# 本机编译
 git clone https://github.com/gngpp/ninja.git && cd ninja
-./build.sh
-
-# 跨平台编译，依赖于docker(如果您可以自己解决跨平台编译依赖)，默认使用docker构建linux/windows平台
-./build_cross.sh 
-
-# 默认在Macos上构建Macos平台
-os=macos ./build_cross.sh
-
-# 编译单个平台二进制，以 aarch64-unknown-linux-musl 为例:
-docker run --rm -it --user=$UID:$(id -g $USER) \
-  -v $(pwd):/home/rust/src \
-  -v $HOME/.cargo/registry:/root/.cargo/registry \
-  -v $HOME/.cargo/git:/root/.cargo/git \
-  ghcr.io/gngpp/ninja-builder:x86_64-unknown-linux-musl \
-  cargo build --release
+cargo build --release
 ```
 
 - OpenWrt 编译
@@ -294,6 +305,12 @@ cd -
 make menuconfig # choose LUCI->Applications->luci-app-ninja  
 make V=s
 ```
+
+### 说明
+
+- 开源项目可以魔改，但请保留原作者信息，以免失去技术支持。
+- 项目是站在其他巨人的肩膀上，感谢！
+- 报错、BUG之类的提出Issue，我会修复。
 
 ### 预览
 

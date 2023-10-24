@@ -3,14 +3,13 @@ mod config;
 mod context;
 mod conversation;
 mod dashboard;
-mod enums;
+mod standard;
 mod valid;
 
 use crate::{
     inter::conversation::{api, chatgpt},
     store::Store,
 };
-use enums::Usage;
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::{
     ui::{
@@ -18,22 +17,23 @@ use inquire::{
     },
     Select,
 };
-use openai::arkose::{funcaptcha, ArkoseToken};
+use openai::arkose::{funcaptcha, ArkoseToken, Type};
 use openai::{
-    auth::{model::AuthStrategy, AuthHandle},
-    model::AuthenticateToken,
+    auth::{model::AuthStrategy, provide::AuthProvider},
+    token::model::AuthenticateToken,
 };
 use serde::Serialize;
 use serde_json::json;
+use standard::Usage;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::task;
 
 use self::context::Context;
 
 pub async fn prompt() -> anyhow::Result<()> {
+    Context::init_openai_context().await?;
     check_authorization().await?;
-
-    print_boot_message();
+    print_boot_message().await;
 
     loop {
         let choice = task::spawn_blocking(move || {
@@ -61,7 +61,7 @@ pub async fn prompt() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn print_boot_message() {
+async fn print_boot_message() {
     let logo = r"
     ____  _____  _              _         
     |_   \|_   _|(_)            (_)        
@@ -78,13 +78,15 @@ fn print_boot_message() {
     println!("\x1B[1m{logo}\x1B[1m");
     println!("\x1B[1m{welcome}\x1B[1m");
     println!("\x1B[1m{enjoy}\x1B[1m");
-    println!("\x1B[1m{repo}\x1B[1m");
+    if let Some(current_user) = Context::current_user().await {
+        print!("\x1B[1m{repo}\x1B[1m");
+        println!("\x1B[1mCurrent User: {current_user}\x1B[1m\n");
+    } else {
+        println!("\x1B[1m{repo}\x1B[1m");
+    }
 }
 
 pub async fn check_authorization() -> anyhow::Result<()> {
-    let pb = new_spinner("Initializing login...");
-
-    Context::init_openai_context().await?;
     let store = Context::get_account_store().await;
     let client = Context::get_auth_client().await;
     let current_time = get_duration_since_epoch()?;
@@ -105,23 +107,32 @@ pub async fn check_authorization() -> anyhow::Result<()> {
         // Refresh if it is less than two weeks old
         for (k, token) in state.iter_mut() {
             if let AuthStrategy::Platform | AuthStrategy::Apple = k {
-                if token.expires() - current_time < token.expires_in() / 2 {
+                let time_left = token.expires() - current_time;
+                let difference = token.expires_in() / 10;
+                if time_left < difference {
                     if let Some(refresh_token) = token.refresh_token() {
-                        let refresh_token = client.do_refresh_token(refresh_token).await?;
-                        let new_token = AuthenticateToken::try_from(refresh_token)?;
-                        *token = new_token;
-                        change = true;
+                        let pb = new_spinner("Initializing login...");
+                        match client.do_refresh_token(refresh_token).await {
+                            Ok(refresh_token) => {
+                                let new_token = AuthenticateToken::try_from(refresh_token)?;
+                                *token = new_token;
+                                change = true;
+                                pb.finish_and_clear();
+                                tokio::time::sleep(Duration::from_secs(3)).await;
+                            }
+                            Err(_) => {
+                                pb.finish_and_clear();
+                            }
+                        };
                     }
                 }
             }
         }
 
         if change {
-            store.add(account)?;
+            store.store(account)?;
         }
     }
-
-    pb.finish_and_clear();
 
     Ok(())
 }
@@ -197,21 +208,21 @@ pub fn json_to_table<T: Serialize>(header: &str, value: T) {
 async fn get_chat_arkose_token(har_file: Option<&String>) -> anyhow::Result<ArkoseToken> {
     match har_file {
         None => {
-            let arkose_token = ArkoseToken::new().await?;
+            let arkose_token = ArkoseToken::new_from_context(Type::Chat3).await?;
             arkose_challenge(&arkose_token).await;
             Ok(arkose_token)
         }
-        Some(har_file) => ArkoseToken::new_form_har(har_file).await,
+        Some(har_file) => ArkoseToken::new_from_har(har_file).await,
     }
 }
 async fn get_platform_arkose_token(har_file: Option<&String>) -> anyhow::Result<ArkoseToken> {
     match har_file {
         None => {
-            let arkose_token = ArkoseToken::new_platform().await?;
+            let arkose_token = ArkoseToken::new_from_context(Type::Platform).await?;
             arkose_challenge(&arkose_token).await;
             Ok(arkose_token)
         }
-        Some(har_file) => ArkoseToken::new_form_har(har_file).await,
+        Some(har_file) => ArkoseToken::new_from_har(har_file).await,
     }
 }
 

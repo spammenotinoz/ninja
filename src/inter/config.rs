@@ -19,7 +19,7 @@ pub async fn prompt() -> anyhow::Result<()> {
     }
 
     let store = Context::get_conf_store().await;
-    let mut conf = store.get(Conf::default())?.unwrap_or(Conf::default());
+    let mut conf = store.read(Conf::new())?.unwrap_or(Conf::new());
     let mut official_api = Text::new("Official API prefix ›")
         .with_render_config(render_config())
         .with_help_message("Example: https://example.com")
@@ -40,9 +40,15 @@ pub async fn prompt() -> anyhow::Result<()> {
         }
     };
 
+    let preauth_api = Text::new("PreAuth API ›")
+        .with_render_config(render_config())
+        .with_help_message("Example: https://example.com/auth/preauth")
+        .with_validator(valid_url)
+        .with_default(&conf.preauth_api);
+
     let mut proxy = Text::new("Proxy ›")
         .with_render_config(render_config())
-        .with_help_message("Supports http, https, socks5, socks5")
+        .with_help_message("Supports http, https, socks5")
         .with_validator(valid_url);
     if let Some(content) = conf.proxy.as_deref() {
         if !content.is_empty() {
@@ -50,20 +56,28 @@ pub async fn prompt() -> anyhow::Result<()> {
         }
     };
 
-    let mut arkose_har_file = Text::new("ChatGPT ArkoseLabs HAR file ›")
+    let mut arkose_chat_har_file = Text::new("ChatGPT ArkoseLabs HAR file ›")
         .with_render_config(render_config())
         .with_help_message("About the browser HAR file path requested by ChatGPT ArkoseLabs")
         .with_validator(valid_file_path);
-    if let Some(content) = conf.arkose_har_file.as_deref() {
-        arkose_har_file = arkose_har_file.with_initial_value(content)
+    if let Some(content) = conf.arkose_chat_har_path.as_deref() {
+        arkose_chat_har_file = arkose_chat_har_file.with_initial_value(content)
     };
 
-    let mut arkose_platform_har_file = Text::new("Platform ArkoseLabs HAR file ›")
+    let mut arkose_auth_har_path = Text::new("Auth ArkoseLabs HAR file ›")
+        .with_render_config(render_config())
+        .with_help_message("About the browser HAR file path requested by Auth ArkoseLabs")
+        .with_validator(valid_file_path);
+    if let Some(content) = conf.arkose_auth_har_path.as_deref() {
+        arkose_auth_har_path = arkose_auth_har_path.with_initial_value(content)
+    };
+
+    let mut arkose_platform_har_path = Text::new("Platform ArkoseLabs HAR file ›")
         .with_render_config(render_config())
         .with_help_message("About the browser HAR file path requested by Platform ArkoseLabs")
         .with_validator(valid_file_path);
-    if let Some(content) = conf.arkose_platform_har_file.as_deref() {
-        arkose_platform_har_file = arkose_platform_har_file.with_initial_value(content)
+    if let Some(content) = conf.arkose_platform_har_path.as_deref() {
+        arkose_platform_har_path = arkose_platform_har_path.with_initial_value(content)
     };
 
     let default_solver = Solver::default().to_string();
@@ -90,6 +104,15 @@ pub async fn prompt() -> anyhow::Result<()> {
         arkose_token_endpoint = arkose_token_endpoint.with_initial_value(content)
     };
 
+    conf.proxy = proxy
+        .prompt_skippable()?
+        .map(|ok| if ok.is_empty() { None } else { Some(ok) })
+        .unwrap_or(conf.proxy);
+
+    if let Some(preauth_api) = preauth_api.prompt_skippable()? {
+        conf.preauth_api = preauth_api;
+    }
+
     conf.official_api = official_api
         .prompt_skippable()?
         .map(|ok| if ok.is_empty() { None } else { Some(ok) })
@@ -100,20 +123,20 @@ pub async fn prompt() -> anyhow::Result<()> {
         .map(|ok| if ok.is_empty() { None } else { Some(ok) })
         .unwrap_or(conf.unofficial_api);
 
-    conf.proxy = proxy
+    conf.arkose_chat_har_path = arkose_chat_har_file
         .prompt_skippable()?
         .map(|ok| if ok.is_empty() { None } else { Some(ok) })
-        .unwrap_or(conf.proxy);
+        .unwrap_or(conf.arkose_chat_har_path);
 
-    conf.arkose_har_file = arkose_har_file
+    conf.arkose_auth_har_path = arkose_auth_har_path
         .prompt_skippable()?
         .map(|ok| if ok.is_empty() { None } else { Some(ok) })
-        .unwrap_or(conf.arkose_har_file);
+        .unwrap_or(conf.arkose_auth_har_path);
 
-    conf.arkose_platform_har_file = arkose_platform_har_file
+    conf.arkose_platform_har_path = arkose_platform_har_path
         .prompt_skippable()?
         .map(|ok| if ok.is_empty() { None } else { Some(ok) })
-        .unwrap_or(conf.arkose_platform_har_file);
+        .unwrap_or(conf.arkose_platform_har_path);
 
     conf.arkose_solver = arkose_solver.prompt()?.parse()?;
 
@@ -165,7 +188,7 @@ pub async fn prompt() -> anyhow::Result<()> {
         .prompt()?;
 
     if ans {
-        store.add(conf)?;
+        store.store(conf)?;
     }
 
     Ok(())

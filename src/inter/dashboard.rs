@@ -1,16 +1,19 @@
 use crate::inter::get_platform_arkose_token;
 use inquire::{MultiSelect, Select, Text};
 use openai::{
-    auth::{ApiKeyAction, ApiKeyDataBuilder, AuthClient},
-    model::AuthenticateToken,
+    auth::{
+        model::{ApiKeyAction, ApiKeyData},
+        AuthClient,
+    },
+    token::model::AuthenticateToken,
 };
 
 use crate::store::{account::Account, Store};
 
-use super::{context::Context, enums::Dashboard, json_to_table, new_spinner};
+use super::{context::Context, json_to_table, new_spinner, standard::Dashboard};
 
 pub async fn prompt() -> anyhow::Result<()> {
-    let using_user = Context::using_user().await;
+    let using_user = Context::current_user().await;
 
     if using_user.is_none() {
         println!("No account found");
@@ -22,7 +25,7 @@ pub async fn prompt() -> anyhow::Result<()> {
         let account_store = Context::get_account_store().await;
 
         let mut account = account_store
-            .get(Account::new(&user))?
+            .read(Account::new(&user))?
             .ok_or(anyhow::anyhow!("No account found"))?;
 
         let state = account
@@ -115,13 +118,13 @@ async fn create_api_key(client: &AuthClient, token: &str) -> anyhow::Result<()> 
 
     if let Some(name) = opt_name {
         let pb = new_spinner("Creating API key...");
-        match get_platform_arkose_token(conf.arkose_platform_har_file.as_ref()).await {
+        match get_platform_arkose_token(conf.arkose_platform_har_path.as_ref()).await {
             Ok(arkose_token) => {
-                let data = ApiKeyDataBuilder::default()
+                let data = ApiKeyData::builder()
                     .action(ApiKeyAction::Create)
                     .name(name.as_str())
                     .arkose_token(&arkose_token)
-                    .build()?;
+                    .build();
 
                 match client.do_api_key(token, data).await {
                     Ok(api_key) => {
@@ -168,16 +171,16 @@ async fn delete_api_key(client: &AuthClient, token: &str) -> anyhow::Result<()> 
                 for s in select {
                     if let Some(key) = api_key_list.data.iter().find(|k| k.sensitive_id.eq(&s)) {
                         let pb = new_spinner("Deleting API key...");
-                        match get_platform_arkose_token(conf.arkose_platform_har_file.as_ref())
+                        match get_platform_arkose_token(conf.arkose_platform_har_path.as_ref())
                             .await
                         {
                             Ok(arkose_token) => {
-                                let data = ApiKeyDataBuilder::default()
+                                let data = ApiKeyData::builder()
                                     .action(ApiKeyAction::Delete)
                                     .created_at(key.created as u64)
                                     .redacted_key(key.sensitive_id.as_str())
                                     .arkose_token(&arkose_token)
-                                    .build()?;
+                                    .build();
 
                                 if let Err(err) = client.do_api_key(token, data).await {
                                     pb.finish_and_clear();

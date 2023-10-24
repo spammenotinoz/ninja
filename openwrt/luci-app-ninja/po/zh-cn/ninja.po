@@ -1,0 +1,224 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Ninja"
+msgstr "Ninja"
+
+msgid "<a>Reverse engineered ChatGPT proxy</a> | <a href=\"https://github.com/gngpp/ninja\" target=\"_blank\">Project GitHub URL</a>"
+msgstr "<a>逆向工程 ChatGPT 代理</a> | <a href=\"https://github.com/gngpp/ninja\" target=\"_blank\">GitHub 项目地址</a>"
+
+msgid "Enabled"
+msgstr "启用"
+
+msgid "Log Level"
+msgstr "日志级别"
+
+msgid "RUNNING"
+msgstr "运行中"
+
+msgid "NOT RUNNING"
+msgstr "未运行"
+
+msgid "Collecting data..."
+msgstr "收集数据..."
+
+msgid "Open WebUI"
+msgstr "打开 WebUI"
+
+msgid "Host"
+msgstr "监听主机"
+
+msgid "Port"
+msgstr "监听端口"
+
+msgid "Workers"
+msgstr "工作线程"
+
+msgid "Proxies"
+msgstr "代理"
+
+msgid "Turn off direct connection"
+msgstr "关闭直连"
+
+msgid "Turn off direct connection using proxy"
+msgstr "关闭直连使用代理"
+
+msgid "TCP Keep-Alive (seconds)"
+msgstr "TCP保活机制 (秒)"
+
+msgid "TLS certificate file path"
+msgstr "TLS证书文件路径"
+
+msgid "TLS private key file path"
+msgstr "TLS私钥文件路径"
+
+msgid "Enable Token Bucket Limit"
+msgstr "启用令牌桶限流"
+
+msgid "Token Bucket Storage Strategy"
+msgstr "令牌桶存储策略"
+
+msgid "Token bucket redis url"
+msgstr "令牌桶Redis URL"
+
+msgid "Token Bucket Capacity"
+msgstr "令牌桶容量"
+
+msgid "Token Bucket Fill Rate"
+msgstr "令牌桶填充速率"
+
+msgid "Token Bucket Expired"
+msgstr "令牌桶过期"
+
+msgid "Token bucket storage strategy, mem/redis"
+msgstr "令牌桶存储策略，Memory/Redis"
+
+msgid "Token bucket capacity, the default is 60"
+msgstr "令牌桶容量，默认为 60"
+
+msgid "Token bucket fill rate, the default is 1"
+msgstr "令牌桶填充速率，默认为 1"
+
+msgid "Token bucket expired time, the default is 86400 seconds"
+msgstr "令牌桶过期时间，默认为 86400 秒"
+
+msgid "Default listening address: 0.0.0.0"
+msgstr "默认监听地址: 0.0.0.0"
+
+msgid "Default listening port: 7999"
+msgstr "默认监听端口: 7999"
+
+msgid "Default 1 worker thread"
+msgstr "默认 1 个工作线程"
+
+msgid "Supports http/https/socks5, format: protocol://user:pass@ip:port"
+msgstr "支持http/https/socks5，格式: protocol://user:pass@ip:port"
+
+msgid "Default 60 seconds"
+msgstr "默认 60 秒"
+
+msgid "Timeout"
+msgstr "客户端超时"
+
+msgid "Connect timeout"
+msgstr "客户端连接超时"
+
+msgid "Client timeout (secends), default 600 secends"
+msgstr "客户端超时，默认 600 秒"
+
+msgid "Client connect timeout (secends), default 60 secends"
+msgstr "客户端连接超时，默认 30 秒"
+
+msgid "Enable API signature"
+msgstr "开启API签名"
+
+msgid "Supports EC/PKCS8/RSA type formats"
+msgstr "支持 EC/PKCS8/RSA 类型格式"
+
+msgid "Certificate in DER format"
+msgstr "DER 格式证书"
+
+msgid "About ArkoseLabs solver platform"
+msgstr "关于 ArkoseLabs 解析器平台"
+
+msgid "About the solver client key by ArkoseLabs"
+msgstr "关于 ArkoseLabs 的解析器客户端密钥"
+
+msgid "Get arkose token endpoint"
+msgstr "获取arkose token的端点"
+
+msgid "About the browser HAR file path requested by ChatGPT GPT-3.5 ArkoseLabs"
+msgstr "关于 ChatGPT GPT-3.5 的ArkoseLabs请求的浏览器HAR文件路径"
+
+msgid "About the browser HAR file path requested by ChatGPT GPT-4 ArkoseLabs"
+msgstr "关于 ChatGPT GPT-4 的ArkoseLabs请求的浏览器HAR文件路径"
+
+msgid "About the browser HAR file path requested by Auth ArkoseLabs"
+msgstr "关于 Auth 的ArkoseLabs请求的浏览器HAR文件路径"
+
+msgid "About the browser HAR file path requested by Platform ArkoseLabs"
+msgstr "关于 Platform 的ArkoseLabs请求的浏览器HAR文件路径"
+
+msgid "ChatGPT GPT-3.5 HAR file path"
+msgstr "ChatGPT GPT-3.5 HAR 文件路径"
+
+msgid "ChatGPT GPT-4 HAR file path"
+msgstr "ChatGPT GPT-4 HAR 文件路径"
+
+msgid "Auth HAR file path"
+msgstr "Auth HAR 文件路径"
+
+msgid "Platform HAR file path"
+msgstr "Platform HAR 文件路径"
+
+msgid "Solver Client Key"
+msgstr "解析器客户端Key"
+
+msgid "Solver"
+msgstr "解析器"
+
+msgid "Arkose token endpoint"
+msgstr "Arkose 令牌端点"
+
+msgid "HAR Auth Key"
+msgstr "HAR 认证Key"
+
+msgid "HAR file upload authenticate key"
+msgstr "HAR文件上传验证Key"
+
+msgid "PreAuth API"
+msgstr "PreAuth 接口"
+
+msgid "PreAuth Cookie API URL"
+msgstr "获取 PreAuth Cookie 的接口"
+
+msgid "Concurrent Limit"
+msgstr "并发限制"
+
+msgid "Default 100 concurrent connections"
+msgstr "默认 100 并发连接"
+
+msgid "Enable Cookie Store"
+msgstr "启用 Cookie 存储"
+
+msgid "Disable WebUI"
+msgstr "禁用 WebUI"
+
+msgid "WebUI API prefix"
+msgstr "WebUI API 前缀"
+
+msgid "CF Site Key"
+msgstr "CF Site Key"
+
+msgid "CF Secret Key"
+msgstr "CF Secret Key"
+
+msgid "Cloudflare turnstile captcha site key"
+msgstr "Cloudflare turnstile 验证码 site key"
+
+msgid "Cloudflare turnstile captcha secret key"
+msgstr "Cloudflare turnstile 验证码 secret key"
+
+msgid "Pool idle timeout"
+msgstr "连接池空闲超时"
+
+msgid "Set an optional timeout for idle sockets being kept-alive"
+msgstr "设置保持活动的空闲套接字的可选超时"
+
+msgid "Interface"
+msgstr "绑定网卡"
+
+msgid "Bind address for outgoing connections"
+msgstr "出站连接绑定地址"
+
+msgid "Ipv6 Subnet"
+msgstr "IPv6 子网"
+
+msgid "IPv6 subnet, Example: 2001:19f0:6001:48e4::/64"
+msgstr "IPv6 子网，示例: 2001:19f0:6001:48e4::/64"
+
+msgid "Auth Key"
+msgstr "认证Key"
+
+msgid "Login Authentication Key"
+msgstr "登录认证Key"

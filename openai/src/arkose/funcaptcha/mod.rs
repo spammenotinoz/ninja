@@ -1,14 +1,17 @@
+mod api_breaker;
+pub mod model;
 pub mod solver;
 
+use self::model::{Challenge, ConciseChallenge, FunCaptcha, RequestChallenge};
+
 use super::crypto;
-use crate::{context, debug};
-use anyhow::Context;
+use crate::arkose::funcaptcha::model::SubmitChallenge;
+use crate::{context, debug, warn};
+use anyhow::{bail, Context};
 use reqwest::header;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use std::sync::Arc;
-use std::{collections::HashMap, str::FromStr};
-
-const INIT_HEX: &str = "cd12da708fe6cbe6e068918c38de2ad9";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -60,39 +63,20 @@ pub async fn start_challenge(arkose_token: &str) -> anyhow::Result<Session> {
     let fields: Vec<&str> = arkose_token.split('|').collect();
     let session_token = fields[0].to_string();
     let sid = fields[1].split('=').nth(1).unwrap_or_default();
-    let ctx = context::Context::get_instance().await;
     let mut session = Session {
         sid: sid.to_owned(),
         session_token: session_token.clone(),
         headers: header::HeaderMap::new(),
-        challenge_logger: ChallengeLogger {
-            sid: sid.to_owned(),
-            session_token: session_token.clone(),
-            analytics_tier: 40,
-            render_type: "canvas".to_string(),
-            game_token: None,
-            game_type: None,
-            category: None,
-            action: None,
-        },
         funcaptcha: None,
         challenge: None,
-        client: ctx.load_client(),
+        client: context::get_instance().client(),
+        game_type: 0,
     };
 
-    session.headers.insert(header::REFERER, format!("https://client-api.arkoselabs.com/fc/assets/ec-game-core/game-core/1.13.0/standard/index.html?session={}", arkose_token.replace("|", "&")).parse()?);
+    session.headers.insert(header::REFERER, format!("https://client-api.arkoselabs.com/fc/assets/ec-game-core/game-core/1.15.0/standard/index.html?session={}", arkose_token.replace("|", "&")).parse()?);
     session
         .headers
         .insert(header::DNT, header::HeaderValue::from_static("1"));
-
-    session
-        .challenge_logger(
-            "",
-            0,
-            "Site URL",
-            format!("https://client-api.arkoselabs.com/v2/1.5.2/enforcement.{INIT_HEX}.html",),
-        )
-        .await?;
 
     let concise_challenge = session.request_challenge().await?;
 
@@ -100,9 +84,9 @@ pub async fn start_challenge(arkose_token: &str) -> anyhow::Result<Session> {
         .download_image_to_base64(&concise_challenge.urls)
         .await?;
 
-    debug!("instructions: {:#?}", concise_challenge.instructions);
-    debug!("game_variant: {:#?}", concise_challenge.game_variant);
-    debug!("images: {:#?}", concise_challenge.urls);
+    if concise_challenge.urls.len() >= 5 {
+        warn!("funcaptcha images count >= 5, please use `solver: capsolver`");
+    }
 
     let funcaptcha_list = images
         .into_iter()
@@ -126,8 +110,8 @@ pub struct Session {
     headers: header::HeaderMap,
     #[allow(dead_code)]
     challenge: Option<Challenge>,
-    challenge_logger: ChallengeLogger,
     funcaptcha: Option<Arc<Vec<FunCaptcha>>>,
+    game_type: u32,
 }
 
 impl Session {
@@ -135,52 +119,20 @@ impl Session {
         self.funcaptcha.as_ref()
     }
 
-    async fn challenge_logger(
-        &self,
-        game_token: &str,
-        game_type: i32,
-        category: &str,
-        action: String,
-    ) -> anyhow::Result<()> {
-        let mut challenge_logger = self.challenge_logger.clone();
-        challenge_logger.game_token = Some(game_token.to_string());
-
-        if game_type != 0 {
-            challenge_logger.game_type = Some(game_type.to_string());
-        }
-
-        challenge_logger.category = Some(category.to_string());
-        challenge_logger.action = Some(action.to_string());
-
-        let resp = self
-            .client
-            .post("https://client-api.arkoselabs.com/fc/a/")
-            .form(&challenge_logger)
-            .headers(self.headers.clone())
-            .send()
-            .await?;
-
-        if let Some(err) = resp.error_for_status().err() {
-            anyhow::bail!("[https://client-api.arkoselabs.com/fc/a/] status error: {err}")
-        }
-
-        Ok(())
-    }
-
     #[inline]
     async fn request_challenge(&mut self) -> anyhow::Result<ConciseChallenge> {
         let challenge_request = RequestChallenge {
-            sid: self.sid.clone(),
-            token: self.session_token.clone(),
+            sid: &self.sid,
+            token: &self.session_token,
             analytics_tier: 40,
-            render_type: "canvas".to_string(),
-            lang: "en-us".to_string(),
+            render_type: "canvas",
+            lang: "en-us",
             is_audio_game: false,
-            api_breaker_version: "green".to_string(),
+            api_breaker_version: "green",
         };
 
         let mut headers = self.headers.clone();
-        headers.insert("X-NewRelic-Timestamp", Self::get_time_stamp().parse()?);
+        headers.insert("X-NewRelic-Timestamp", get_time_stamp().parse()?);
 
         let resp = self
             .client
@@ -199,30 +151,26 @@ impl Session {
 
         let challenge = resp.json::<Challenge>().await?;
 
-        self.challenge_logger(
-            &challenge.challenge_id,
-            challenge.game_data.game_type,
-            "loaded",
-            "game loaded".to_owned(),
-        )
-        .await?;
+        debug!("challenge: {:#?}", challenge);
+
+        self.game_type = challenge.game_data.game_type as u32;
 
         // Build concise challenge
-        let (challenge_type, challenge_urls, key) = match challenge.game_data.game_type {
-            4 => (
+        let (game_type, challenge_urls, key, game_variant) = {
+            let game_variant = if challenge.game_data.instruction_string.is_empty() {
+                &challenge.game_data.game_variant
+            } else {
+                &challenge.game_data.instruction_string
+            };
+            (
                 "image",
-                challenge.game_data.custom_gui.challenge_imgs.clone(),
-                format!("4.instructions-{}", challenge.game_data.instruction_string),
-            ),
-            101 => (
-                "audio",
-                challenge.audio_challenge_urls.clone().unwrap_or_default(),
+                &challenge.game_data.custom_gui.challenge_imgs,
                 format!(
-                    "audio_game.instructions-{}",
-                    challenge.game_data.game_variant
+                    "{}.instructions-{game_variant}",
+                    challenge.game_data.game_type
                 ),
-            ),
-            _ => ("unknown", Vec::new(), String::new()),
+                game_variant.to_owned(),
+            )
         };
 
         let remove_html_tags = |input: &str| {
@@ -230,30 +178,49 @@ impl Session {
             re.replace_all(input, "").to_string()
         };
 
-        let concise_challenge = ConciseChallenge {
-            game_type: challenge_type.to_string(),
-            urls: challenge_urls.clone(),
-            game_variant: challenge.game_data.instruction_string.clone(),
-            instructions: remove_html_tags(&challenge.string_table[&key]),
-        };
-        self.challenge = Some(challenge);
-
-        Ok(concise_challenge)
+        match challenge.string_table.get(&key) {
+            Some(html_instructions) => {
+                let concise_challenge = ConciseChallenge {
+                    game_type,
+                    game_variant,
+                    urls: challenge_urls.to_vec(),
+                    instructions: remove_html_tags(html_instructions),
+                };
+                self.challenge = Some(challenge);
+                Ok(concise_challenge)
+            }
+            None => {
+                warn!("unknown challenge type: {challenge:#?}");
+                bail!("unknown challenge type: {key}")
+            }
+        }
     }
 
     pub async fn submit_answer(mut self, answers: Vec<i32>) -> anyhow::Result<()> {
-        debug!("answer index:{answers:?}");
         let mut answer_index = Vec::with_capacity(answers.len());
+        let c_ui = &self
+            .challenge
+            .as_ref()
+            .context("no challenge")?
+            .game_data
+            .custom_gui;
+
         for answer in answers {
-            answer_index.push(format!(r#"{{"index":{answer}}}"#))
+            let answer = api_breaker::hanlde_answer(
+                c_ui.api_breaker_v2_enabled != 0,
+                self.game_type,
+                &c_ui.api_breaker,
+                answer,
+            )?
+            .to_string();
+            answer_index.push(answer)
         }
 
         let answer = answer_index.join(",");
-
         let submit = SubmitChallenge {
                     session_token: &self.session_token,
                     sid: &self.sid,
-                    game_token: &self.challenge.context("no challenge")?.challenge_id,
+                    game_token: &self.challenge.as_ref().context("no challenge")?.challenge_id,
                     guess: &crypto::encrypt(&format!("[{answer}]"), &self.session_token)?,
                     render_type: "canvas",
                     analytics_tier: 40,
@@ -264,10 +231,12 @@ impl Session {
 
         let request_id = crypto::encrypt("{{\"sc\":[147,307]}}", &pwd)?;
 
+        self.headers
+            .insert(header::DNT, header::HeaderValue::from_static("1"));
         self.headers.insert("X-Requested-ID", request_id.parse()?);
 
         self.headers
-            .insert("X-NewRelic-Timestamp", Self::get_time_stamp().parse()?);
+            .insert("X-NewRelic-Timestamp", get_time_stamp().parse()?);
 
         let resp = self
             .client
@@ -277,7 +246,7 @@ impl Session {
             .send()
             .await?;
 
-        #[derive(Deserialize, Default)]
+        #[derive(Deserialize, Default, Debug)]
         #[serde(default)]
         struct Response {
             response: Option<String>,
@@ -296,6 +265,7 @@ impl Session {
                 }
 
                 if !resp.solved {
+                    warn!("funcaptcha not solved: {:#?}", self.challenge);
                     anyhow::bail!(
                         "incorrect guess {}",
                         resp.incorrect_guess.unwrap_or_default()
@@ -307,13 +277,6 @@ impl Session {
                 anyhow::bail!(err)
             }
         }
-    }
-
-    fn get_time_stamp() -> String {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let now = SystemTime::now();
-        let since_the_epoch = now.duration_since(UNIX_EPOCH).expect("Time went backwards");
-        since_the_epoch.as_millis().to_string()
     }
 
     async fn download_image_to_base64(&self, urls: &Vec<String>) -> anyhow::Result<Vec<String>> {
@@ -336,85 +299,9 @@ impl Session {
     }
 }
 
-#[derive(Debug, Serialize)]
-struct RequestChallenge {
-    sid: String,
-    token: String,
-    analytics_tier: i32,
-    render_type: String,
-    lang: String,
-    #[serde(rename = "isAudioGame")]
-    is_audio_game: bool,
-    #[serde(rename = "apiBreakerVersion")]
-    api_breaker_version: String,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(default)]
-struct Challenge {
-    session_token: String,
-    #[serde(rename = "challengeID")]
-    challenge_id: String,
-    #[serde(rename = "challengeURL")]
-    challenge_url: String,
-    audio_challenge_urls: Option<Vec<String>>,
-    game_data: GameData,
-    string_table: HashMap<String, String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(default)]
-struct GameData {
-    #[serde(rename = "gameType")]
-    game_type: i32,
-    game_variant: String,
-    instruction_string: String,
-    #[serde(rename = "customGUI")]
-    custom_gui: CustomGUI,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(default)]
-struct CustomGUI {
-    #[serde(rename = "_challenge_imgs")]
-    challenge_imgs: Vec<String>,
-}
-
-#[derive(Debug, Default)]
-#[allow(dead_code)]
-struct ConciseChallenge {
-    game_type: String,
-    urls: Vec<String>,
-    instructions: String,
-    game_variant: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-struct ChallengeLogger {
-    sid: String,
-    session_token: String,
-    analytics_tier: i32,
-    render_type: String,
-    game_token: Option<String>,
-    game_type: Option<String>,
-    category: Option<String>,
-    action: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FunCaptcha {
-    pub image: String,
-    pub instructions: String,
-    pub game_variant: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct SubmitChallenge<'a> {
-    session_token: &'a str,
-    sid: &'a str,
-    game_token: &'a str,
-    guess: &'a str,
-    render_type: &'static str,
-    analytics_tier: i32,
-    bio: &'static str,
+fn get_time_stamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now();
+    let since_the_epoch = now.duration_since(UNIX_EPOCH).expect("Time went backwards");
+    since_the_epoch.as_millis().to_string()
 }
