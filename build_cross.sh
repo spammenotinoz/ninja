@@ -12,11 +12,11 @@ cargo update
 cargo install cargo-deb
 
 pull_docker_image() {
-    docker pull ghcr.io/gngpp/ninja-builder:$1
+    docker pull ghcr.io/spammenotinoz/ninja-builder:$1
 }
 
 rmi_docker_image() {
-    docker rmi ghcr.io/gngpp/ninja-builder:$1
+    docker rmi ghcr.io/spammenotinoz/ninja-builder:$1
 }
 
 build_macos_target() {
@@ -36,7 +36,7 @@ build_linux_target() {
         -v $(pwd):/home/rust/src \
         -v $HOME/.cargo/registry:/root/.cargo/registry \
         -v $HOME/.cargo/git:/root/.cargo/git \
-        ghcr.io/gngpp/ninja-builder:$1 cargo build --release
+        ghcr.io/spammenotinoz/ninja-builder:$1 cargo build --release
     sudo chmod -R 777 target
     upx --best --lzma target/$1/release/ninja
     cargo deb --target=$1 --no-build --no-strip
@@ -57,7 +57,7 @@ build_windows_target() {
         -v $(pwd):/home/rust/src \
         -v $HOME/.cargo/registry:/usr/local/cargo/registry \
         -v $HOME/.cargo/git:/usr/local/cargo/git \
-        ghcr.io/gngpp/ninja-builder:$1 cargo xwin build --release --target $1
+        ghcr.io/spammenotinoz/ninja-builder:$1 cargo xwin build --release --target $1
     sudo chmod -R 777 target
     sudo upx --best --lzma target/$1/release/ninja.exe
     cd target/$1/release
