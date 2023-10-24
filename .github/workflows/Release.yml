@@ -44,7 +44,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.MY_PERSONAL_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Build package
         shell: bash
@@ -55,7 +55,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          token: ${{ secrets.MY_PERSONAL_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             uploads/*
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
@@ -95,7 +95,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.MY_PERSONAL_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
             
       - name: Build and push
         if: startsWith(github.ref, 'refs/tags/')
